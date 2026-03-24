@@ -749,11 +749,12 @@ async function loadDashboard() {
     const dueCount = (progress || []).filter(p => new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
 
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const { data: prevReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).lt('created_at', todayStart.toISOString());
-    const prevIds = new Set((prevReviews || []).map(r => r.vocabulary_id));
-    const { data: todayReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).gte('created_at', todayStart.toISOString());
-    const newTodayCount = new Set((todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevIds.has(id))).size;
-    const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
+    const { count: newTodayCount } = await sb.from('srs_progress')
+      .select('*', { count: 'exact', head: true })
+      .eq('student_id', state.user.id)
+      .in('vocabulary_id', vocabIds)
+      .gte('first_seen_at', todayStart.toISOString());
+    const remainingNew = Math.max(0, NEW_PER_DAY - (newTodayCount || 0));
     const newAvailable = Math.min(remainingNew, vocab.filter(v => !progressSet.has(v.id)).length);
 
     state.dashboard = { dueCount, newAvailable, totalLearned: progressSet.size };
@@ -799,23 +800,16 @@ async function startSession(reviewOnly = false) {
   progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
 
   // Ermittle wie viele neue Karten heute bereits eingeführt wurden
+  // Quelle: srs_progress.first_seen_at — zuverlässiger als reviews-Tabelle
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  const { data: prevReviews } = await sb.from('reviews')
-    .select('vocabulary_id')
+  const { count: newTodayCount } = await sb.from('srs_progress')
+    .select('*', { count: 'exact', head: true })
     .eq('student_id', state.user.id)
-    .lt('created_at', todayStart.toISOString());
-  const prevVocabIds = new Set(prevReviews?.map(r => r.vocabulary_id) || []);
-
-  const { data: todayReviews } = await sb.from('reviews')
-    .select('vocabulary_id')
-    .eq('student_id', state.user.id)
-    .gte('created_at', todayStart.toISOString());
-  const newTodayCount = new Set(
-    (todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevVocabIds.has(id))
-  ).size;
-  const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
+    .in('vocabulary_id', vocabIds)
+    .gte('first_seen_at', todayStart.toISOString());
+  const remainingNew = Math.max(0, NEW_PER_DAY - (newTodayCount || 0));
 
   if (!reviewOnly && remainingNew === 0) {
     animateReviewBtn();
@@ -848,12 +842,13 @@ async function startSession(reviewOnly = false) {
   }
 
   // Erstelle Session in DB
-  const { data: sess } = await sb.from('learning_sessions')
+  const { data: sess, error: sessError } = await sb.from('learning_sessions')
     .insert({ student_id: state.user.id })
     .select().single();
+  if (sessError) console.error('Session-Erstellung fehlgeschlagen:', sessError);
 
   state.session = {
-    id: sess.id,
+    id: sess?.id || null,
     activeQueue: [...dueCards, ...todayNew],
     pendingQueue: [],
     reviewed: 0,
@@ -883,36 +878,39 @@ async function rateCard(rating) {
   const nextReview = minutesFromNow(intervalMin);
   const vocabId = card.vocab.id;
 
-  // Update SRS progress in DB
-  const existing = card.progress;
-  if (existing) {
-    await sb.from('srs_progress').update({
-      next_review: nextReview.toISOString(),
-      interval_minutes: intervalMin,
-      ease: rating,
-      review_count: (existing.review_count || 0) + 1
-    }).eq('id', existing.id);
-  } else {
-    await sb.from('srs_progress').insert({
-      student_id: state.user.id,
-      vocabulary_id: vocabId,
-      next_review: nextReview.toISOString(),
-      interval_minutes: intervalMin,
-      ease: rating,
-      review_count: 1
-    });
+  // Fortschritt speichern (UPSERT — funktioniert für neue und bekannte Karten)
+  const updatedProgress = {
+    student_id: state.user.id,
+    vocabulary_id: vocabId,
+    next_review: nextReview.toISOString(),
+    interval_minutes: intervalMin,
+    ease: rating,
+    review_count: (card.progress?.review_count || 0) + 1,
+    first_seen_at: card.progress?.first_seen_at || new Date().toISOString(),
+    last_seen_at: new Date().toISOString()
+  };
+
+  const { error: srsError } = await sb.from('srs_progress')
+    .upsert(updatedProgress, { onConflict: 'student_id,vocabulary_id' });
+
+  if (srsError) {
+    showToast('Fehler beim Speichern — bitte nochmal versuchen.', 'error');
+    return; // Karte NICHT weiterschalten, Schüler soll nochmal bewerten
   }
 
-  // Log review
+  // In-memory aktualisieren (wichtig für pendingQueue-Durchläufe)
+  card.progress = updatedProgress;
+
+  // Review loggen (best-effort, kein Block bei Fehler)
   await sb.from('reviews').insert({
     student_id: state.user.id,
     vocabulary_id: vocabId,
-    session_id: state.session.id,
+    session_id: state.session?.id || null,
     rating,
     direction: state.direction
   });
 
-  // Update session stats
+  // Session-Statistik
   state.session.reviewed++;
   if (rating >= 3) state.session.correct++;
   else state.session.wrong++;
@@ -920,8 +918,7 @@ async function rateCard(rating) {
   // Wenn schlecht/okay: Karte später wieder einreihen
   if (rating <= 2) {
     state.session.pendingQueue.push({
-      ...card,
-      progress: { ...(card.progress || {}), next_review: nextReview.toISOString(), interval_minutes: intervalMin, ease: rating },
+      ...card, // card.progress ist bereits oben aktualisiert
       showAfter: nextReview
     });
   }
