@@ -744,15 +744,15 @@ async function loadDashboard() {
     const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
     const vocabIds = vocab.map(v => v.id);
 
-    const { data: progress } = await sb.from('srs_progress').select('vocabulary_id, next_review').eq('student_id', state.user.id).in('vocabulary_id', vocabIds);
-    const progressSet = new Set((progress || []).map(p => p.vocabulary_id));
-    const dueCount = (progress || []).filter(p => new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
+    // Kein vocabIds-Filter: vermeidet URL-Längenproblem, Student hat nur eigene Progress-Rows
+    const { data: progress } = await sb.from('srs_progress').select('vocabulary_id, next_review').eq('student_id', state.user.id);
+    const progressSet = new Set((progress || []).filter(p => vocabIds.includes(p.vocabulary_id)).map(p => p.vocabulary_id));
+    const dueCount = (progress || []).filter(p => vocabIds.includes(p.vocabulary_id) && new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
 
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const { count: newTodayCount } = await sb.from('srs_progress')
       .select('*', { count: 'exact', head: true })
       .eq('student_id', state.user.id)
-      .in('vocabulary_id', vocabIds)
       .gte('first_seen_at', todayStart.toISOString());
     const remainingNew = Math.max(0, NEW_PER_DAY - (newTodayCount || 0));
     const newAvailable = Math.min(remainingNew, vocab.filter(v => !progressSet.has(v.id)).length);
@@ -789,25 +789,24 @@ async function startSession(reviewOnly = false) {
   const { data: allVocab } = await sb.from('vocabulary').select('*');
   const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
 
-  // Lade bestehenden SRS-Fortschritt
+  // Lade bestehenden SRS-Fortschritt (kein vocabIds-Filter: vermeidet URL-Längenproblem,
+  // ein Schüler hat nur Progress für seine eigenen Wörter)
   const vocabIds = vocab.map(v => v.id);
-  const { data: progress, error: progressError } = await sb.from('srs_progress')
+  const { data: progress } = await sb.from('srs_progress')
     .select('*')
-    .eq('student_id', state.user.id)
-    .in('vocabulary_id', vocabIds);
+    .eq('student_id', state.user.id);
 
   const progressMap = {};
   progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
 
   // Ermittle wie viele neue Karten heute bereits eingeführt wurden
-  // Quelle: srs_progress.first_seen_at — zuverlässiger als reviews-Tabelle
+  // Kein vocabIds-Filter: Student hat nur Progress für eigene Wörter
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
   const { count: newTodayCount } = await sb.from('srs_progress')
     .select('*', { count: 'exact', head: true })
     .eq('student_id', state.user.id)
-    .in('vocabulary_id', vocabIds)
     .gte('first_seen_at', todayStart.toISOString());
   const remainingNew = Math.max(0, NEW_PER_DAY - (newTodayCount || 0));
 
