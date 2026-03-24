@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vokabeltrainer</title>
+<title>Lernportal</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <style>
@@ -399,6 +399,34 @@
   .nav-tab.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
   .nav-tab:hover:not(.active) { color: var(--text); }
 
+  /* MODULE BAR */
+  .module-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 64px; z-index: 40;
+    gap: 16px; min-height: 48px;
+  }
+  .module-tabs { display: flex; align-items: stretch; gap: 0; }
+  .module-tab {
+    display: flex; align-items: center; gap: 7px;
+    padding: 0 18px; height: 48px;
+    font-size: 13.5px; font-weight: 700;
+    color: var(--text2); border: none; background: none;
+    font-family: 'Nunito', sans-serif; cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .module-tab:hover:not(.coming-soon):not(.active) { color: var(--text); border-bottom-color: var(--border); }
+  .module-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .module-tab.coming-soon { opacity: 0.45; cursor: default; }
+  .module-coming-badge {
+    font-size: 10px; padding: 2px 7px; border-radius: 20px;
+    background: var(--surface2); color: var(--text3); font-weight: 800;
+    border: 1.5px solid var(--border); letter-spacing: 0.2px;
+  }
+
   .section-title { font-size: 30px; margin-bottom: 6px; color: var(--text); }
   .section-sub { color: var(--text2); font-size: 14px; margin-bottom: 28px; font-weight: 600; }
 
@@ -448,6 +476,7 @@
   }
   @media(max-width: 600px) {
     .topbar { padding: 0 16px; }
+    .module-bar { padding: 0 16px; }
     .main { padding: 20px 16px; }
     .rating-buttons { grid-template-columns: repeat(2, 1fr); }
     .card-word { font-size: 34px; }
@@ -506,6 +535,8 @@ let state = {
   // Stats
   statsStudent: null,
   statsData: null,
+  // Module system
+  activeModule: 'vocab',  // vocab | homework
 };
 
 // ========== INTERVALS (Minuten) ==========
@@ -995,14 +1026,35 @@ async function uploadCSV(file, level) {
 
 async function loadStats(studentId) {
   state.statsStudent = state.students.find(s => s.id === studentId);
-  
-  const [sessions, reviews] = await Promise.all([
+
+  const [sessions, reviews, progress] = await Promise.all([
     sb.from('learning_sessions').select('*').eq('student_id', studentId).order('started_at', { ascending: false }).limit(20),
-    sb.from('reviews').select('*, vocabulary(german, english, level, chapter)').eq('student_id', studentId).order('created_at', { ascending: false }).limit(100)
+    sb.from('reviews').select('*, vocabulary(id, german, english, level, chapter)').eq('student_id', studentId).order('created_at', { ascending: false }).limit(2000),
+    sb.from('srs_progress').select('vocabulary_id, next_review, interval_minutes, ease, review_count').eq('student_id', studentId)
   ]);
 
   const sessionData = sessions.data || [];
   const reviewData = reviews.data || [];
+  const progressData = progress.data || [];
+
+  // Build per-vocab aggregation (iterate chronologically = oldest first → history is oldest→newest)
+  const vocabMap = {};
+  [...reviewData].reverse().forEach(r => {
+    const id = r.vocabulary_id;
+    if (!vocabMap[id]) {
+      vocabMap[id] = { vocab: r.vocabulary, count: 0, ratings: {1:0, 2:0, 3:0, 4:0}, history: [] };
+    }
+    vocabMap[id].count++;
+    if (r.rating >= 1 && r.rating <= 4) vocabMap[id].ratings[r.rating]++;
+    if (vocabMap[id].history.length < 8) vocabMap[id].history.push(r.rating);
+  });
+
+  const progressMap = {};
+  progressData.forEach(p => { progressMap[p.vocabulary_id] = p; });
+
+  const vocabStats = Object.entries(vocabMap)
+    .map(([id, v]) => ({ ...v, progress: progressMap[id] || null }))
+    .sort((a, b) => b.count - a.count);
 
   const totalReviewed = sessionData.reduce((s, r) => s + (r.cards_reviewed || 0), 0);
   const totalCorrect = sessionData.reduce((s, r) => s + (r.correct_count || 0), 0);
@@ -1015,6 +1067,7 @@ async function loadStats(studentId) {
   state.statsData = {
     sessions: sessionData,
     reviews: reviewData,
+    vocabStats,
     totalReviewed, totalCorrect, totalWrong,
     totalTimeMin: Math.round(totalTime / 60000),
     accuracy: totalReviewed > 0 ? Math.round((totalCorrect / totalReviewed) * 100) : 0
@@ -1023,30 +1076,55 @@ async function loadStats(studentId) {
 }
 
 // ========== BUILD HTML ==========
+const MODULES = [
+  { id: 'vocab',    icon: '📚', label: 'Vokabeltrainer' },
+  { id: 'homework', icon: '📝', label: 'Hausaufgaben', comingSoon: true },
+];
+
 function buildApp() {
   if (state.view === 'login') return buildLogin();
 
+  const isAdmin = state.profile?.is_admin;
+
+  // Context-sensitive sub-tabs (only shown for vocab module)
+  let subTabs = '';
+  if (state.activeModule === 'vocab') {
+    if (isAdmin) {
+      subTabs = `
+        <button class="nav-tab ${state.adminTab === 'students' ? 'active' : ''}" onclick="switchAdminTab('students')">Schüler</button>
+        <button class="nav-tab ${state.adminTab === 'vocab' ? 'active' : ''}" onclick="switchAdminTab('vocab')">Vokabeln</button>`;
+    } else {
+      subTabs = `
+        <button class="nav-tab ${state.studentTab === 'learn' ? 'active' : ''}" onclick="switchStudentTab('learn')">Lernen</button>
+        <button class="nav-tab ${state.studentTab === 'chapters' ? 'active' : ''}" onclick="switchStudentTab('chapters')">Fortschritt</button>
+        <button class="nav-tab ${state.studentTab === 'vocab' ? 'active' : ''}" onclick="switchStudentTab('vocab')">Vokabeln</button>`;
+    }
+  }
+
   const topbar = `
     <div class="topbar">
-      <div class="topbar-logo">✦ <span>Vokabel</span>trainer</div>
+      <div class="topbar-logo">✦ <span>Lern</span>portal</div>
       <div class="topbar-right">
-        ${state.profile?.is_admin ? `
-          <div class="nav-tabs">
-            <button class="nav-tab ${state.adminTab === 'students' ? 'active' : ''}" onclick="switchAdminTab('students')">Schüler</button>
-            <button class="nav-tab ${state.adminTab === 'vocab' ? 'active' : ''}" onclick="switchAdminTab('vocab')">Vokabeln</button>
-          </div>` : `
-          <div class="nav-tabs">
-            <button class="nav-tab ${state.studentTab === 'learn' ? 'active' : ''}" onclick="switchStudentTab('learn')">Lernen</button>
-            <button class="nav-tab ${state.studentTab === 'chapters' ? 'active' : ''}" onclick="switchStudentTab('chapters')">Fortschritt</button>
-            <button class="nav-tab ${state.studentTab === 'vocab' ? 'active' : ''}" onclick="switchStudentTab('vocab')">Vokabeln</button>
-          </div>`}
         <span class="text-sm text-muted">${state.profile?.full_name || state.profile?.email || ''}</span>
         <button class="btn btn-ghost btn-sm" onclick="logout()">Abmelden</button>
       </div>
     </div>`;
 
-  if (state.view === 'admin') return `<div id="app">${topbar}<div class="main">${buildAdmin()}</div></div>`;
-  return `<div id="app">${topbar}<div class="main">${buildStudent()}</div></div>`;
+  const moduleBar = `
+    <div class="module-bar">
+      <div class="module-tabs">
+        ${MODULES.map(m => `
+          <button class="module-tab ${state.activeModule === m.id ? 'active' : ''} ${m.comingSoon ? 'coming-soon' : ''}"
+            ${m.comingSoon ? '' : `onclick="switchModule('${m.id}')"`}>
+            ${m.icon} ${m.label}
+            ${m.comingSoon ? '<span class="module-coming-badge">bald</span>' : ''}
+          </button>`).join('')}
+      </div>
+      ${subTabs ? `<div class="nav-tabs">${subTabs}</div>` : ''}
+    </div>`;
+
+  const content = isAdmin ? buildAdmin() : buildStudent();
+  return `<div id="app">${topbar}${moduleBar}<div class="main">${content}</div></div>`;
 }
 
 function buildLogin() {
@@ -1111,9 +1189,44 @@ function buildLogin() {
 }
 
 function buildStudent() {
+  if (state.activeModule === 'homework') return buildHomeworkDummy();
   if (state.studentTab === 'chapters') return buildProgressView();
   if (state.studentTab === 'vocab') return buildVocabList();
   return buildLearnView();
+}
+
+function buildHomeworkDummy() {
+  const isAdmin = state.profile?.is_admin;
+  return `
+    <div style="display:flex;flex-direction:column;align-items:center;padding:80px 24px;text-align:center">
+      <div style="width:88px;height:88px;border-radius:24px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:24px;border:1.5px solid var(--border)">📝</div>
+      <h2 style="font-size:28px;margin-bottom:10px">Hausaufgaben</h2>
+      <p class="text-muted" style="max-width:400px;line-height:1.8;font-size:15px">
+        ${isAdmin
+          ? 'Hier wirst du Schülern Hausaufgaben zuweisen, den Fortschritt verfolgen und Feedback geben können.'
+          : 'Hier bekommst du von deiner Lehrperson Hausaufgaben zugeteilt und kannst sie direkt hier erledigen.'}
+      </p>
+      <div style="margin-top:32px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:18px 24px;min-width:160px;opacity:0.5">
+          <div style="font-size:24px;margin-bottom:8px">📋</div>
+          <div style="font-weight:700;font-size:14px">${isAdmin ? 'Aufgaben erstellen' : 'Aufgabenliste'}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Bald verfügbar</div>
+        </div>
+        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:18px 24px;min-width:160px;opacity:0.5">
+          <div style="font-size:24px;margin-bottom:8px">💬</div>
+          <div style="font-weight:700;font-size:14px">${isAdmin ? 'Feedback geben' : 'Notizen & Chat'}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Bald verfügbar</div>
+        </div>
+        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:18px 24px;min-width:160px;opacity:0.5">
+          <div style="font-size:24px;margin-bottom:8px">📊</div>
+          <div style="font-weight:700;font-size:14px">${isAdmin ? 'Fortschritt' : 'Mein Fortschritt'}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Bald verfügbar</div>
+        </div>
+      </div>
+      <div style="margin-top:32px;display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:20px;background:var(--accent-light);color:var(--accent);font-size:13px;font-weight:700">
+        🚧 Dieses Modul ist in Entwicklung
+      </div>
+    </div>`;
 }
 
 function getBadgeSVG(tier, size) {
@@ -1445,6 +1558,7 @@ function buildLearnView() {
 }
 
 function buildAdmin() {
+  if (state.activeModule === 'homework') return buildHomeworkDummy();
   if (state.statsData) return buildStatsView();
   if (state.adminTab === 'vocab') return buildVocabAdmin();
   return buildStudentsAdmin();
@@ -1613,11 +1727,11 @@ function buildStatsView() {
     </div>
 
     <div class="card mb-4">
-      <h3 style="margin-bottom:16px">Letzte Lerneinheiten</h3>
+      <h3 style="margin-bottom:16px">Lerneinheiten</h3>
       ${d.sessions.length === 0 ? `<p class="text-muted text-sm">Noch keine Sessions</p>` : `
       <table>
         <thead><tr>
-          <th>Datum</th><th>Dauer</th><th>Karten</th><th>Richtig</th><th>Falsch</th>
+          <th>Datum</th><th>Dauer</th><th>Karten</th><th>Richtig</th><th>Falsch</th><th>Quote</th>
         </tr></thead>
         <tbody>
           ${d.sessions.slice(0,10).map(sess => {
@@ -1629,6 +1743,7 @@ function buildStatsView() {
               <td>${sess.cards_reviewed || 0}</td>
               <td><span class="chip green">${sess.correct_count || 0}</span></td>
               <td><span class="chip red">${sess.wrong_count || 0}</span></td>
+              <td style="font-weight:700;color:${acc >= 70 ? 'var(--green)' : acc >= 40 ? 'var(--orange)' : 'var(--red)'}">${acc}%</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -1636,23 +1751,54 @@ function buildStatsView() {
     </div>
 
     <div class="card">
-      <h3 style="margin-bottom:16px">Letzte Bewertungen</h3>
-      ${d.reviews.length === 0 ? `<p class="text-muted text-sm">Noch keine Bewertungen</p>` : `
+      <div class="flex items-center justify-between mb-6">
+        <h3 style="margin:0">Vokabeln im Detail</h3>
+        <span class="chip">${(d.vocabStats || []).length} Wörter</span>
+      </div>
+      ${!d.vocabStats?.length ? `<p class="text-muted text-sm">Noch keine Daten</p>` : `
+      <div style="overflow-x:auto">
       <table>
-        <thead><tr><th>Vokabel</th><th>Richtung</th><th>Bewertung</th><th>Datum</th></tr></thead>
+        <thead><tr>
+          <th>Deutsch</th>
+          <th>Englisch</th>
+          <th>Kapitel</th>
+          <th style="text-align:center">Abfragen</th>
+          <th style="text-align:center" title="Schlecht">😕</th>
+          <th style="text-align:center" title="Okay">😐</th>
+          <th style="text-align:center" title="Gut">🙂</th>
+          <th style="text-align:center" title="Sehr gut">😄</th>
+          <th>Verlauf</th>
+          <th>Nächste WH</th>
+        </tr></thead>
         <tbody>
-          ${d.reviews.slice(0,20).map(r => {
-            const rLabel = ['','😕 Schlecht','😐 Okay','🙂 Gut','😄 Sehr gut'][r.rating] || r.rating;
-            const rColor = [,'red','','blue','green'][r.rating] || '';
+          ${d.vocabStats.map(v => {
+            const p = v.progress;
+            const nextReview = p?.next_review ? new Date(p.next_review) : null;
+            const isOverdue = nextReview && nextReview <= new Date();
+            const nextStr = nextReview
+              ? (isOverdue ? '<span style="color:var(--red)">⚠ Fällig</span>' : nextReview.toLocaleDateString('de-DE'))
+              : '<span style="color:var(--text3)">—</span>';
+            const totalR = v.ratings[1] + v.ratings[2] + v.ratings[3] + v.ratings[4];
+            const goodPct = totalR > 0 ? Math.round(((v.ratings[3] + v.ratings[4]) / totalR) * 100) : 0;
             return `<tr>
-              <td>${r.vocabulary?.german} / ${r.vocabulary?.english}</td>
-              <td>${r.direction === 'de_en' ? 'DE→EN' : 'EN→DE'}</td>
-              <td><span class="chip ${rColor}">${rLabel}</span></td>
-              <td>${new Date(r.created_at).toLocaleDateString('de-DE')}</td>
+              <td style="font-family:'Lora',serif;font-weight:600">${v.vocab?.german || '—'}</td>
+              <td style="font-family:'Lora',serif">${v.vocab?.english || '—'}</td>
+              <td><span class="chip" style="font-size:11px">${v.vocab?.level || ''} Kap.${v.vocab?.chapter || ''}</span></td>
+              <td style="text-align:center">
+                <strong>${v.count}</strong>
+                <div style="font-size:11px;color:${goodPct >= 70 ? 'var(--green)' : goodPct >= 40 ? 'var(--orange)' : 'var(--red)'};font-weight:700">${goodPct}% gut</div>
+              </td>
+              <td style="text-align:center;color:var(--red);font-weight:700">${v.ratings[1] || 0}</td>
+              <td style="text-align:center;color:var(--orange);font-weight:700">${v.ratings[2] || 0}</td>
+              <td style="text-align:center;color:var(--blue);font-weight:700">${v.ratings[3] || 0}</td>
+              <td style="text-align:center;color:var(--green);font-weight:700">${v.ratings[4] || 0}</td>
+              <td style="font-size:17px;letter-spacing:1px;white-space:nowrap">${v.history.map(r => ['','😕','😐','🙂','😄'][r] || '').join('')}</td>
+              <td style="font-size:12px;white-space:nowrap">${nextStr}</td>
             </tr>`;
           }).join('')}
         </tbody>
-      </table>`}
+      </table>
+      </div>`}
     </div>`;
 }
 
@@ -1743,6 +1889,12 @@ window.rateCard = rateCard;
 window.setDirection = (d) => { state.direction = d; render(); };
 window.startSession = startSession;
 window.selectLevel = (l) => { state.selectedLevel = l; render(); };
+
+window.switchModule = async (moduleId) => {
+  state.activeModule = moduleId;
+  state.statsData = null;
+  render();
+};
 
 window.switchAdminTab = async (tab) => {
   state.adminTab = tab;
