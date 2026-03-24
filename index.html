@@ -797,10 +797,10 @@ async function toggleChapterUnlock(studentId, level, chapter) {
 async function uploadCSV(file, level) {
   const text = await file.text();
   const lines = text.split('\n').filter(l => l.trim());
-  // CSV format: chapter,german,english
+  // CSV format: Kapitel,Kategorie,Deutsch,Englisch
   const rows = lines.slice(1).map(line => {
     const parts = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
-    return { level, chapter: parts[0], german: parts[1], english: parts[2] };
+    return { level, chapter: parts[0], german: parts[2], english: parts[3] };
   }).filter(r => r.chapter && r.german && r.english);
 
   const { error } = await sb.from('vocabulary').insert(rows);
@@ -1137,7 +1137,7 @@ function buildVocabAdmin() {
     
     <div class="card mb-6">
       <h3 style="margin-bottom:12px">CSV importieren</h3>
-      <p class="text-sm text-muted" style="margin-bottom:16px">Format: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">kapitel,deutsch,englisch</code> (erste Zeile = Überschrift)</p>
+      <p class="text-sm text-muted" style="margin-bottom:16px">Format: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">Kapitel,Kategorie,Deutsch,Englisch</code> (erste Zeile = Überschrift, Kapitel wird automatisch aufgeteilt)</p>
       <div class="form-group">
         <label>Sprachlevel</label>
         <select id="import-level">
