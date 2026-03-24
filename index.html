@@ -468,7 +468,7 @@ let state = {
   // Flashcard session
   session: null,
   currentCard: null,
-  direction: 'de_en',
+  direction: 'en_de',
   showBack: false,
   waitingUntil: null,
   sessionActive: false,
@@ -590,26 +590,30 @@ async function loadStudentChapters() {
 }
 
 // ========== STUDENT: LEARNING SESSION ==========
-async function startSession(level, chapter) {
-  state.selectedLevel = level;
-  state.selectedChapter = chapter;
+async function startSession() {
   state.studentTab = 'learn';
   state.sessionActive = true;
   state.showBack = false;
   state.waitingUntil = null;
 
-  // Erstelle Session in DB
-  const { data: sess } = await sb.from('learning_sessions')
-    .insert({ student_id: state.user.id })
-    .select().single();
-  
-  // Lade alle Vokabeln des Kapitels
-  const { data: vocab } = await sb.from('vocabulary')
-    .select('*')
-    .eq('level', level)
-    .eq('chapter', chapter);
+  // Lade freigeschaltete Kapitel
+  const { data: unlocked } = await sb.from('unlocked_chapters')
+    .select('level, chapter')
+    .eq('student_id', state.user.id);
 
-  // Lade bestehenden Fortschritt
+  if (!unlocked || unlocked.length === 0) {
+    showToast('Noch keine Kapitel freigeschaltet.', 'error');
+    state.sessionActive = false;
+    render();
+    return;
+  }
+
+  // Lade alle Vokabeln aus allen freigeschalteten Kapiteln
+  const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
+  const { data: allVocab } = await sb.from('vocabulary').select('*');
+  const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
+
+  // Lade bestehenden SRS-Fortschritt
   const vocabIds = vocab.map(v => v.id);
   const { data: progress } = await sb.from('srs_progress')
     .select('*')
@@ -619,6 +623,26 @@ async function startSession(level, chapter) {
   const progressMap = {};
   progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
 
+  // Ermittle wie viele neue Karten heute bereits eingeführt wurden
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const { data: prevReviews } = await sb.from('reviews')
+    .select('vocabulary_id')
+    .eq('student_id', state.user.id)
+    .lt('reviewed_at', todayStart.toISOString());
+  const prevVocabIds = new Set(prevReviews?.map(r => r.vocabulary_id) || []);
+
+  const { data: todayReviews } = await sb.from('reviews')
+    .select('vocabulary_id')
+    .eq('student_id', state.user.id)
+    .gte('reviewed_at', todayStart.toISOString());
+  const newTodayCount = new Set(
+    (todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevVocabIds.has(id))
+  ).size;
+  const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
+
+  // Sortiere in fällige und neue Karten
   const rightNow = now();
   const dueCards = [];
   const newCards = [];
@@ -632,28 +656,36 @@ async function startSession(level, chapter) {
     }
   });
 
-  // Mische
   shuffle(dueCards);
   shuffle(newCards);
 
-  // Max NEW_PER_DAY neue Karten
-  const todayNew = newCards.slice(0, NEW_PER_DAY);
+  const todayNew = newCards.slice(0, remainingNew);
+
+  if (dueCards.length === 0 && todayNew.length === 0) {
+    showToast('Keine Karten fällig – komm später wieder!', 'success');
+    state.sessionActive = false;
+    render();
+    return;
+  }
+
+  // Erstelle Session in DB
+  const { data: sess } = await sb.from('learning_sessions')
+    .insert({ student_id: state.user.id })
+    .select().single();
 
   state.session = {
     id: sess.id,
-    level, chapter,
-    allVocab: vocab,
-    dueQueue: [...dueCards],
-    newQueue: [...todayNew],
-    activeQueue: [...dueCards, ...todayNew], // kombiniert, dann gemischt
-    pendingQueue: [],   // Karten die wegen Timer warten
+    activeQueue: [...dueCards, ...todayNew],
+    pendingQueue: [],
     reviewed: 0,
     correct: 0,
     wrong: 0,
-    total: dueCards.length + todayNew.length
+    total: dueCards.length + todayNew.length,
+    newToday: newTodayCount,
+    remainingNew
   };
   shuffle(state.session.activeQueue);
-  
+
   state.currentCard = state.session.activeQueue.shift() || null;
   render();
 }
@@ -948,8 +980,7 @@ function buildChapterSelect() {
     </div>
     <div class="chapter-grid">
       ${filtered.map(c => `
-        <div class="chapter-card ${c.unlocked ? '' : 'locked'}"
-          ${c.unlocked ? `onclick="startSession('${c.level}', '${c.chapter}')"` : ''}>
+        <div class="chapter-card ${c.unlocked ? '' : 'locked'}">
           <div class="chapter-num">${c.unlocked ? '✓ Freigeschaltet' : '🔒 Gesperrt'}</div>
           <div class="chapter-name">Kapitel ${c.chapter}</div>
           <div class="chapter-count">${c.count} Vokabeln</div>
@@ -963,9 +994,9 @@ function buildLearnView() {
     return `
       <div class="empty">
         <div class="empty-icon">📖</div>
-        <h2 class="empty-title">Noch kein Kapitel gewählt</h2>
-        <p class="text-muted" style="margin-bottom:20px">Wähle ein Kapitel aus deinen freigeschalteten Einheiten</p>
-        <button class="btn btn-primary" onclick="switchStudentTab('chapters')">Kapitel wählen</button>
+        <h2 class="empty-title">Bereit zum Lernen?</h2>
+        <p class="text-muted" style="margin-bottom:20px">Alle fälligen Karten aus deinen freigeschalteten Kapiteln werden abgefragt.</p>
+        <button class="btn btn-primary" onclick="startSession()">Lernen starten</button>
       </div>`;
   }
 
@@ -996,8 +1027,7 @@ function buildLearnView() {
           <div class="stat-card"><div class="stat-big">${accuracy}%</div><div class="stat-label">Trefferquote</div></div>
         </div>
         <div class="flex gap-3 items-center" style="justify-content:center;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="switchStudentTab('chapters')">Neues Kapitel</button>
-          <button class="btn btn-ghost" onclick="startSession('${s.level}', '${s.chapter}')">Wiederholen</button>
+          <button class="btn btn-primary" onclick="startSession()">Nochmal lernen</button>
         </div>
       </div>`;
   }
@@ -1013,7 +1043,7 @@ function buildLearnView() {
       <div style="width:100%;max-width:560px">
         <div class="flex justify-between items-center mb-4">
           <div class="flex gap-2 items-center">
-            <span class="text-sm text-muted">Kapitel ${s.chapter} · ${s.level}</span>
+            <span class="text-sm text-muted">${s.total} Karten · ${s.remainingNew > 0 ? `${s.remainingNew} neue heute` : 'keine neuen mehr heute'}</span>
           </div>
           <div class="direction-toggle">
             <button class="toggle-btn ${state.direction === 'de_en' ? 'active' : ''}" onclick="setDirection('de_en')">DE→EN</button>
