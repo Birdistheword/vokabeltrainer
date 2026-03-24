@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vokabeltrainer</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f7ff;
+    --surface: #ffffff;
+    --surface2: #f0f2fa;
+    --border: #e4e7f5;
+    --accent: #4f6ef7;
+    --accent-light: #eef0ff;
+    --accent-hover: #3a57e8;
+    --text: #1a1d35;
+    --text2: #6b7099;
+    --text3: #a8adc8;
+    --green: #22c06b;
+    --green-light: #e8faf1;
+    --red: #f04a5a;
+    --red-light: #fff0f1;
+    --orange: #ff8c42;
+    --orange-light: #fff4ec;
+    --blue: #4f6ef7;
+    --blue-light: #eef0ff;
+    --yellow: #f5c842;
+    --yellow-light: #fffaeb;
+    --shadow-sm: 0 1px 4px rgba(79,110,247,0.06), 0 2px 12px rgba(79,110,247,0.06);
+    --shadow: 0 4px 20px rgba(79,110,247,0.1), 0 1px 4px rgba(79,110,247,0.06);
+    --shadow-lg: 0 8px 40px rgba(79,110,247,0.15);
+    --radius: 16px;
+    --radius-sm: 10px;
+    --radius-xs: 6px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Nunito', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  h1, h2, h3 { font-family: 'Lora', serif; font-weight: 600; }
+
+  /* LAYOUT */
+  #app { min-height: 100vh; display: flex; flex-direction: column; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; height: 64px;
+    background: var(--surface);
+    box-shadow: 0 1px 0 var(--border), var(--shadow-sm);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .topbar-logo {
+    font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 20px;
+    color: var(--accent); letter-spacing: -0.3px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .topbar-logo span { color: var(--text); }
+  .topbar-right { display: flex; gap: 10px; align-items: center; }
+  .main { flex: 1; padding: 36px 32px; max-width: 960px; margin: 0 auto; width: 100%; }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 20px; border-radius: var(--radius-sm);
+    font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 700;
+    border: none; cursor: pointer; transition: all 0.18s; text-decoration: none;
+    letter-spacing: 0.1px;
+  }
+  .btn-primary {
+    background: var(--accent); color: #fff;
+    box-shadow: 0 4px 14px rgba(79,110,247,0.3);
+  }
+  .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 6px 20px rgba(79,110,247,0.4); transform: translateY(-1px); }
+  .btn-ghost {
+    background: var(--surface); color: var(--text2);
+    border: 1.5px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+  .btn-danger { background: var(--red); color: white; box-shadow: 0 4px 14px rgba(240,74,90,0.25); }
+  .btn-danger:hover { background: #d93a49; transform: translateY(-1px); }
+  .btn-sm { padding: 7px 14px; font-size: 13px; }
+
+  /* FORMS */
+  .form-group { margin-bottom: 18px; }
+  label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; font-weight: 700; letter-spacing: 0.2px; }
+  input, select, textarea {
+    width: 100%; padding: 11px 16px;
+    background: var(--surface2);
+    border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+    color: var(--text); font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 500;
+    outline: none; transition: all 0.15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent); background: var(--surface);
+    box-shadow: 0 0 0 3px rgba(79,110,247,0.12);
+  }
+  select option { background: var(--surface); }
+
+  /* CARDS */
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius); padding: 24px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+  }
+  .card + .card { margin-top: 16px; }
+
+  /* LOGIN PAGE */
+  #login-view {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 10% 20%, rgba(79,110,247,0.12) 0%, transparent 50%),
+      radial-gradient(ellipse at 90% 80%, rgba(34,192,107,0.10) 0%, transparent 50%),
+      radial-gradient(ellipse at 60% 10%, rgba(245,200,66,0.10) 0%, transparent 40%);
+  }
+  .login-wrap {
+    display: flex; align-items: center; gap: 60px;
+    width: 100%; max-width: 860px; padding: 0 24px;
+  }
+  .login-hero { flex: 1; }
+  .login-hero-title { font-size: 42px; line-height: 1.2; color: var(--text); margin-bottom: 14px; }
+  .login-hero-title em { color: var(--accent); font-style: normal; }
+  .login-hero-sub { color: var(--text2); font-size: 16px; line-height: 1.7; font-weight: 500; }
+  .login-features { margin-top: 28px; display: flex; flex-direction: column; gap: 12px; }
+  .login-feature { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--text2); }
+  .login-feature-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .login-box {
+    background: var(--surface);
+    border-radius: 24px; padding: 40px 36px; width: 100%; max-width: 400px;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .login-title { font-size: 26px; color: var(--text); margin-bottom: 4px; }
+  .login-sub { color: var(--text2); font-size: 14px; margin-bottom: 28px; font-weight: 500; }
+
+  /* TABS */
+  .tabs {
+    display: flex; gap: 4px; border-bottom: none; margin-bottom: 24px;
+    background: var(--surface2); padding: 4px; border-radius: var(--radius-sm);
+  }
+  .tab {
+    flex: 1; padding: 8px 16px; cursor: pointer; font-size: 14px; font-weight: 700;
+    color: var(--text2); border: none; border-radius: var(--radius-xs);
+    background: none; transition: all 0.15s; text-align: center;
+  }
+  .tab.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* FLASHCARD */
+  .flashcard-wrapper {
+    display: flex; flex-direction: column; align-items: center; gap: 20px;
+    padding: 20px 0;
+  }
+  .progress-bar-outer {
+    width: 100%; height: 6px; background: var(--border); border-radius: 3px;
+    margin-bottom: 4px; overflow: hidden;
+  }
+  .progress-bar-inner {
+    height: 6px; background: linear-gradient(90deg, var(--accent), #7b9bff);
+    border-radius: 3px; transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+  }
+  .session-stats { display: flex; gap: 20px; font-size: 13px; color: var(--text2); width: 100%; font-weight: 600; }
+  .session-stat { display: flex; align-items: center; gap: 6px; }
+  .stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .flashcard {
+    width: 100%; max-width: 580px;
+    background: var(--surface);
+    border-radius: 24px; padding: 0; cursor: pointer;
+    perspective: 1200px; min-height: 260px;
+    position: relative; overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+  }
+  .flashcard::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(79,110,247,0.03) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+  }
+  .flashcard-inner {
+    width: 100%; height: 100%; min-height: 260px;
+    position: relative; transition: transform 0.55s cubic-bezier(0.4,0,0.2,1);
+    transform-style: preserve-3d;
+  }
+  .flashcard.flipped .flashcard-inner { transform: rotateY(180deg); }
+  .flashcard-front, .flashcard-back {
+    position: absolute; width: 100%; height: 100%; min-height: 260px;
+    backface-visibility: hidden; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 44px 36px; text-align: center;
+    z-index: 1;
+  }
+  .flashcard-back {
+    transform: rotateY(180deg);
+    background: linear-gradient(135deg, #eef0ff 0%, #f5f7ff 100%);
+  }
+  .card-level-badge {
+    position: absolute; top: 18px; left: 18px;
+    font-size: 11px; font-weight: 800; color: var(--accent);
+    background: var(--accent-light);
+    padding: 4px 10px; border-radius: 20px; letter-spacing: 0.5px;
+  }
+  .card-direction-badge {
+    position: absolute; top: 18px; right: 18px;
+    font-size: 12px; color: var(--text3); font-weight: 600;
+  }
+  .card-word {
+    font-family: 'Lora', serif; font-size: 46px; font-weight: 600;
+    color: var(--text); letter-spacing: -1px; margin-bottom: 8px; line-height: 1.1;
+  }
+  .card-hint {
+    font-size: 13px; color: var(--text3); margin-top: 18px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .card-translation {
+    font-family: 'Lora', serif; font-size: 40px; font-weight: 600;
+    color: var(--accent); letter-spacing: -0.5px;
+  }
+
+  /* RATING BUTTONS */
+  .rating-buttons {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: 100%; max-width: 580px;
+  }
+  .rating-btn {
+    padding: 14px 8px; border: 2px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); cursor: pointer; transition: all 0.18s;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    font-family: 'Nunito', sans-serif;
+    box-shadow: var(--shadow-sm);
+  }
+  .rating-btn:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+  .rating-btn .r-label { font-size: 13px; font-weight: 800; }
+  .rating-btn .r-interval { font-size: 11px; color: var(--text3); font-weight: 600; }
+  .rating-btn.r1 { border-color: #ffd6d9; }
+  .rating-btn.r1:hover { border-color: var(--red); background: var(--red-light); }
+  .rating-btn.r1 .r-label { color: var(--red); }
+  .rating-btn.r2 { border-color: #ffe8d4; }
+  .rating-btn.r2:hover { border-color: var(--orange); background: var(--orange-light); }
+  .rating-btn.r2 .r-label { color: var(--orange); }
+  .rating-btn.r3 { border-color: #d6e1ff; }
+  .rating-btn.r3:hover { border-color: var(--blue); background: var(--blue-light); }
+  .rating-btn.r3 .r-label { color: var(--blue); }
+  .rating-btn.r4 { border-color: #c8f2da; }
+  .rating-btn.r4:hover { border-color: var(--green); background: var(--green-light); }
+  .rating-btn.r4 .r-label { color: var(--green); }
+
+  /* DIRECTION TOGGLE */
+  .direction-toggle { display: flex; gap: 4px; background: var(--surface2); padding: 4px; border-radius: 20px; }
+  .toggle-btn {
+    padding: 5px 14px; border-radius: 16px; border: none;
+    background: none; color: var(--text2); cursor: pointer; font-size: 12px; font-weight: 700;
+    transition: all 0.15s; font-family: 'Nunito', sans-serif;
+  }
+  .toggle-btn.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+
+  /* CHAPTER SELECTION */
+  .chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  .chapter-card {
+    background: var(--surface);
+    border-radius: var(--radius); padding: 20px; cursor: pointer;
+    transition: all 0.2s; position: relative;
+    border: 2px solid var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+  .chapter-card:hover {
+    border-color: var(--accent); box-shadow: var(--shadow);
+    transform: translateY(-2px);
+  }
+  .chapter-card.locked { opacity: 0.5; cursor: not-allowed; filter: grayscale(0.3); }
+  .chapter-card.locked:hover { border-color: var(--border); box-shadow: var(--shadow-sm); transform: none; }
+  .chapter-num { font-size: 11px; font-weight: 800; color: var(--accent); letter-spacing: 0.5px; margin-bottom: 6px; text-transform: uppercase; }
+  .chapter-name { font-weight: 700; margin-bottom: 4px; font-size: 15px; }
+  .chapter-count { font-size: 12px; color: var(--text2); font-weight: 600; }
+  .chapter-lock { position: absolute; top: 14px; right: 14px; color: var(--text3); font-size: 18px; }
+
+  /* LEVEL PILL */
+  .level-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  .level-pill {
+    padding: 6px 18px; border-radius: 20px; border: 2px solid var(--border);
+    background: var(--surface); color: var(--text2); cursor: pointer;
+    font-size: 13px; font-weight: 800; transition: all 0.15s; font-family: 'Nunito', sans-serif;
+  }
+  .level-pill.active { background: var(--accent); color: white; border-color: var(--accent); box-shadow: 0 4px 12px rgba(79,110,247,0.3); }
+  .level-pill:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+
+  /* ADMIN */
+  .admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media(max-width: 680px) { .admin-grid { grid-template-columns: 1fr; } }
+  .stat-card {
+    background: var(--surface);
+    border-radius: var(--radius); padding: 22px;
+    box-shadow: var(--shadow-sm); border: 1px solid var(--border);
+    position: relative; overflow: hidden;
+  }
+  .stat-card::after {
+    content: ''; position: absolute; top: -20px; right: -20px;
+    width: 80px; height: 80px; border-radius: 50%;
+    background: var(--accent-light); opacity: 0.7;
+  }
+  .stat-big { font-family: 'Lora', serif; font-size: 42px; font-weight: 600; color: var(--accent); line-height: 1; }
+  .stat-label { font-size: 13px; color: var(--text2); margin-top: 6px; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 800; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 2px solid var(--border); }
+  td { padding: 13px 14px; border-bottom: 1px solid var(--border); color: var(--text2); font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+
+  /* STUDENT LIST */
+  .student-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 0; border-bottom: 1px solid var(--border);
+  }
+  .student-row:last-child { border-bottom: none; }
+  .student-avatar {
+    width: 38px; height: 38px; border-radius: 12px;
+    background: var(--accent-light); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px; margin-right: 12px; flex-shrink: 0;
+  }
+  .student-info { display: flex; align-items: center; }
+  .student-name { font-weight: 700; font-size: 15px; }
+  .student-email { font-size: 12px; color: var(--text2); font-weight: 500; }
+  .student-actions { display: flex; gap: 8px; }
+
+  /* MODALS */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(26,29,53,0.4);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+    backdrop-filter: blur(6px);
+  }
+  .modal {
+    background: var(--surface);
+    border-radius: 20px; padding: 32px; width: 100%; max-width: 520px;
+    max-height: 85vh; overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+  }
+  .modal-title { font-size: 22px; margin-bottom: 20px; }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 999;
+    background: var(--surface);
+    padding: 14px 20px; border-radius: var(--radius-sm);
+    font-size: 14px; color: var(--text); font-weight: 600;
+    box-shadow: var(--shadow-lg);
+    animation: toastIn 0.2s ease;
+    border-left: 4px solid var(--accent);
+  }
+  @keyframes toastIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+  .toast.success { border-left-color: var(--green); }
+  .toast.error { border-left-color: var(--red); }
+
+  /* COUNTDOWN TIMER */
+  .queue-info { font-size: 13px; color: var(--text2); text-align: center; font-weight: 600; }
+  .queue-waiting {
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    padding: 60px 40px;
+  }
+  .wait-icon { font-size: 48px; margin-bottom: 4px; }
+  .wait-timer { font-family: 'Lora', serif; font-size: 56px; color: var(--accent); font-weight: 600; }
+  .wait-label { font-size: 14px; color: var(--text2); font-weight: 600; }
+
+  /* EMPTY STATE */
+  .empty { text-align: center; padding: 60px 20px; }
+  .empty-icon { font-size: 56px; margin-bottom: 16px; }
+  .empty-title { font-size: 22px; color: var(--text); margin-bottom: 8px; }
+
+  /* NAV */
+  .nav-tabs { display: flex; gap: 4px; background: var(--surface2); padding: 4px; border-radius: 10px; }
+  .nav-tab {
+    padding: 7px 16px; border-radius: var(--radius-xs); font-size: 13px; font-weight: 700;
+    color: var(--text2); cursor: pointer; background: none; border: none; transition: all 0.15s;
+    font-family: 'Nunito', sans-serif;
+  }
+  .nav-tab.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+  .nav-tab:hover:not(.active) { color: var(--text); }
+
+  .section-title { font-size: 30px; margin-bottom: 6px; color: var(--text); }
+  .section-sub { color: var(--text2); font-size: 14px; margin-bottom: 28px; font-weight: 600; }
+
+  .chip {
+    display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 800;
+    background: var(--surface2); border: 1.5px solid var(--border); color: var(--text2);
+    letter-spacing: 0.2px;
+  }
+  .chip.green { border-color: var(--green); color: var(--green); background: var(--green-light); }
+  .chip.red { border-color: var(--red); color: var(--red); background: var(--red-light); }
+  .chip.blue { border-color: var(--blue); color: var(--blue); background: var(--blue-light); }
+
+  .hidden { display: none !important; }
+  .flex { display: flex; }
+  .gap-2 { gap: 8px; }
+  .gap-3 { gap: 12px; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .mb-4 { margin-bottom: 16px; }
+  .mb-6 { margin-bottom: 24px; }
+  .text-sm { font-size: 13px; }
+  .text-xs { font-size: 12px; }
+  .text-muted { color: var(--text2); }
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* UPLOAD AREA */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 36px; text-align: center; cursor: pointer; transition: all 0.18s;
+    background: var(--surface2);
+  }
+  .upload-zone:hover { border-color: var(--accent); background: var(--accent-light); }
+  .upload-zone input { display: none; }
+
+  /* Done screen */
+  .done-screen { text-align: center; padding: 60px 20px; }
+  .done-icon { font-size: 72px; margin-bottom: 20px; animation: pop 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+  @keyframes pop { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .done-title { font-size: 34px; margin-bottom: 8px; }
+
+  /* Responsive */
+  @media(max-width: 700px) {
+    .login-wrap { flex-direction: column; gap: 32px; }
+    .login-hero { text-align: center; }
+    .login-hero-title { font-size: 30px; }
+    .login-features { align-items: center; }
+  }
+  @media(max-width: 600px) {
+    .topbar { padding: 0 16px; }
+    .main { padding: 20px 16px; }
+    .rating-buttons { grid-template-columns: repeat(2, 1fr); }
+    .card-word { font-size: 34px; }
+    .admin-grid { grid-template-columns: 1fr; }
+    .login-box { padding: 32px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== CONFIG ========== -->
+<script>
+  // HIER DEINE SUPABASE ZUGANGSDATEN EINTRAGEN:
+  const SUPABASE_URL = 'https://caaujaknoenoswrxaqpa.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_7VrFnwHgcKDWAZU6ONnvrw_6Yx3neGM';
+</script>
+
+<div id="app"></div>
+
+<script>
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ========== STATE ==========
+let state = {
+  user: null,
+  profile: null,
+  view: 'login',        // login | student | admin
+  adminTab: 'students', // students | vocab | stats
+  studentTab: 'learn',  // learn | chapters
+  selectedLevel: null,
+  selectedChapter: null,
+  // Flashcard session
+  session: null,
+  currentCard: null,
+  direction: 'de_en',
+  showBack: false,
+  waitingUntil: null,
+  sessionActive: false,
+  // Admin
+  students: [],
+  teachers: [],
+  vocabulary: [],
+  vocabLevels: [],
+  selectedStudent: null,
+  unlockedForStudent: [],
+  allChaptersByLevel: {},
+  // Stats
+  statsStudent: null,
+  statsData: null,
+};
+
+// ========== INTERVALS (Minuten) ==========
+const RATING_INTERVALS = { 1: 1, 2: 5, 3: 120, 4: 4320 }; // 4320 = 3 Tage
+const RATING_LABELS = {
+  1: { label: '😕 Schlecht', interval: '1 Min' },
+  2: { label: '😐 Okay',     interval: '5 Min' },
+  3: { label: '🙂 Gut',      interval: '2 Std' },
+  4: { label: '😄 Sehr gut', interval: '3 Tage' }
+};
+const NEW_PER_DAY = 10;
+
+// ========== UTILS ==========
+function el(id) { return document.getElementById(id); }
+function now() { return new Date(); }
+function minutesFromNow(m) { return new Date(Date.now() + m * 60000); }
+function showToast(msg, type = '') {
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+function render() { document.getElementById('app').innerHTML = buildApp(); attachEvents(); }
+
+// ========== AUTH ==========
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    await loadProfile(session.user);
+  } else {
+    await loadTeachers();
+  }
+  render();
+}
+
+async function loadProfile(user) {
+  state.user = user;
+  // Use maybeSingle to avoid 406 errors, and bypass RLS by selecting only own row
+  const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (error) console.error('Profile load error:', error);
+  state.profile = data;
+  state.view = data?.is_admin ? 'admin' : 'student';
+}
+
+async function login(email, password) {
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { showToast('Fehler: ' + error.message, 'error'); return; }
+  const { data: { user } } = await sb.auth.getUser();
+  await loadProfile(user);
+  render();
+}
+
+async function loadTeachers() {
+  const { data } = await sb.from('profiles').select('id, full_name').eq('is_admin', true).order('full_name');
+  state.teachers = data || [];
+}
+
+async function register(email, password, name, teacherId) {
+  if (!teacherId) { showToast('Bitte wähle deinen Lehrer aus.', 'error'); return; }
+  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name: name } } });
+  if (error) { showToast('Fehler: ' + error.message, 'error'); return; }
+  // Lehrer zuweisen (kurz warten bis Trigger das Profil erstellt hat)
+  if (data.user) {
+    await new Promise(r => setTimeout(r, 1000));
+    await sb.from('profiles').update({ teacher_id: teacherId }).eq('id', data.user.id);
+  }
+  showToast('Konto erstellt! Du kannst dich jetzt einloggen.', 'success');
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  state = { ...state, user: null, profile: null, view: 'login', session: null, currentCard: null };
+  await loadTeachers();
+  render();
+}
+
+// ========== STUDENT: CHAPTERS ==========
+async function loadStudentChapters() {
+  const { data: unlocked } = await sb.from('unlocked_chapters')
+    .select('level, chapter')
+    .eq('student_id', state.user.id);
+
+  const { data: vocab } = await sb.from('vocabulary').select('level, chapter');
+
+  // Gruppe nach level/chapter
+  const chapters = {};
+  vocab?.forEach(v => {
+    const key = `${v.level}||${v.chapter}`;
+    if (!chapters[key]) chapters[key] = { level: v.level, chapter: v.chapter, count: 0 };
+    chapters[key].count++;
+  });
+
+  const unlockedSet = new Set(unlocked?.map(u => `${u.level}||${u.chapter}`) || []);
+  state.studentChapters = Object.values(chapters).map(c => ({
+    ...c,
+    unlocked: unlockedSet.has(`${c.level}||${c.chapter}`)
+  }));
+  state.studentLevels = [...new Set(Object.values(chapters).map(c => c.level))].sort();
+  if (!state.selectedLevel && state.studentLevels.length) {
+    state.selectedLevel = state.studentLevels[0];
+  }
+}
+
+// ========== STUDENT: LEARNING SESSION ==========
+async function startSession(level, chapter) {
+  state.selectedLevel = level;
+  state.selectedChapter = chapter;
+  state.studentTab = 'learn';
+  state.sessionActive = true;
+  state.showBack = false;
+  state.waitingUntil = null;
+
+  // Erstelle Session in DB
+  const { data: sess } = await sb.from('learning_sessions')
+    .insert({ student_id: state.user.id })
+    .select().single();
+  
+  // Lade alle Vokabeln des Kapitels
+  const { data: vocab } = await sb.from('vocabulary')
+    .select('*')
+    .eq('level', level)
+    .eq('chapter', chapter);
+
+  // Lade bestehenden Fortschritt
+  const vocabIds = vocab.map(v => v.id);
+  const { data: progress } = await sb.from('srs_progress')
+    .select('*')
+    .eq('student_id', state.user.id)
+    .in('vocabulary_id', vocabIds);
+
+  const progressMap = {};
+  progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
+
+  const rightNow = now();
+  const dueCards = [];
+  const newCards = [];
+
+  vocab.forEach(v => {
+    const p = progressMap[v.id];
+    if (!p) {
+      newCards.push({ vocab: v, progress: null });
+    } else if (new Date(p.next_review) <= rightNow) {
+      dueCards.push({ vocab: v, progress: p });
+    }
+  });
+
+  // Mische
+  shuffle(dueCards);
+  shuffle(newCards);
+
+  // Max NEW_PER_DAY neue Karten
+  const todayNew = newCards.slice(0, NEW_PER_DAY);
+
+  state.session = {
+    id: sess.id,
+    level, chapter,
+    allVocab: vocab,
+    dueQueue: [...dueCards],
+    newQueue: [...todayNew],
+    activeQueue: [...dueCards, ...todayNew], // kombiniert, dann gemischt
+    pendingQueue: [],   // Karten die wegen Timer warten
+    reviewed: 0,
+    correct: 0,
+    wrong: 0,
+    total: dueCards.length + todayNew.length
+  };
+  shuffle(state.session.activeQueue);
+  
+  state.currentCard = state.session.activeQueue.shift() || null;
+  render();
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+async function rateCard(rating) {
+  if (!state.currentCard) return;
+  const card = state.currentCard;
+  const intervalMin = RATING_INTERVALS[rating];
+  const nextReview = minutesFromNow(intervalMin);
+  const vocabId = card.vocab.id;
+
+  // Update SRS progress in DB
+  const existing = card.progress;
+  if (existing) {
+    await sb.from('srs_progress').update({
+      next_review: nextReview.toISOString(),
+      interval_minutes: intervalMin,
+      ease: rating,
+      review_count: (existing.review_count || 0) + 1
+    }).eq('id', existing.id);
+  } else {
+    await sb.from('srs_progress').insert({
+      student_id: state.user.id,
+      vocabulary_id: vocabId,
+      next_review: nextReview.toISOString(),
+      interval_minutes: intervalMin,
+      ease: rating,
+      review_count: 1
+    });
+  }
+
+  // Log review
+  await sb.from('reviews').insert({
+    student_id: state.user.id,
+    vocabulary_id: vocabId,
+    session_id: state.session.id,
+    rating,
+    direction: state.direction
+  });
+
+  // Update session stats
+  state.session.reviewed++;
+  if (rating >= 3) state.session.correct++;
+  else state.session.wrong++;
+
+  // Wenn schlecht/okay: Karte später wieder einreihen
+  if (rating <= 2) {
+    state.session.pendingQueue.push({
+      ...card,
+      progress: { ...(card.progress || {}), next_review: nextReview.toISOString(), interval_minutes: intervalMin, ease: rating },
+      showAfter: nextReview
+    });
+  }
+
+  // Nächste Karte bestimmen
+  const rightNow = now();
+  
+  // Prüfe ob pending Karten fällig sind
+  const readyPending = state.session.pendingQueue.filter(c => new Date(c.showAfter) <= rightNow);
+  state.session.pendingQueue = state.session.pendingQueue.filter(c => new Date(c.showAfter) > rightNow);
+
+  // Kombiniere aktive + fällige pending
+  const available = [...state.session.activeQueue, ...readyPending];
+
+  if (available.length > 0) {
+    shuffle(available);
+    state.currentCard = available.shift();
+    state.session.activeQueue = available;
+  } else if (state.session.pendingQueue.length > 0) {
+    // Warte auf die nächste pending Karte
+    const next = state.session.pendingQueue.reduce((a, b) =>
+      new Date(a.showAfter) < new Date(b.showAfter) ? a : b
+    );
+    state.waitingUntil = new Date(next.showAfter);
+    state.currentCard = null;
+  } else {
+    // Session fertig
+    state.currentCard = null;
+    state.waitingUntil = null;
+    await sb.from('learning_sessions').update({
+      ended_at: new Date().toISOString(),
+      cards_reviewed: state.session.reviewed,
+      correct_count: state.session.correct,
+      wrong_count: state.session.wrong
+    }).eq('id', state.session.id);
+  }
+
+  state.showBack = false;
+  render();
+}
+
+// ========== ADMIN FUNCTIONS ==========
+async function loadStudents() {
+  const { data } = await sb.from('profiles')
+    .select('*')
+    .eq('is_admin', false)
+    .eq('teacher_id', state.user.id)
+    .order('created_at');
+  state.students = data || [];
+}
+
+async function loadVocabMeta() {
+  const { data } = await sb.from('vocabulary').select('level, chapter');
+  const byLevel = {};
+  data?.forEach(v => {
+    if (!byLevel[v.level]) byLevel[v.level] = new Set();
+    byLevel[v.level].add(v.chapter);
+  });
+  Object.keys(byLevel).forEach(l => {
+    byLevel[l] = [...byLevel[l]].sort((a, b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      return isNaN(na) || isNaN(nb) ? a.localeCompare(b) : na - nb;
+    });
+  });
+  state.allChaptersByLevel = byLevel;
+  state.vocabLevels = Object.keys(byLevel).sort();
+}
+
+async function loadUnlockedForStudent(studentId) {
+  const { data } = await sb.from('unlocked_chapters')
+    .select('*').eq('student_id', studentId);
+  state.unlockedForStudent = data || [];
+}
+
+async function toggleChapterUnlock(studentId, level, chapter) {
+  const exists = state.unlockedForStudent.find(u => u.level === level && u.chapter === chapter);
+  if (exists) {
+    await sb.from('unlocked_chapters').delete().eq('id', exists.id);
+  } else {
+    await sb.from('unlocked_chapters').insert({ student_id: studentId, level, chapter });
+  }
+  await loadUnlockedForStudent(studentId);
+  render();
+}
+
+async function uploadCSV(file, level) {
+  const text = await file.text();
+  const lines = text.split('\n').filter(l => l.trim());
+  // CSV format: chapter,german,english
+  const rows = lines.slice(1).map(line => {
+    const parts = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+    return { level, chapter: parts[0], german: parts[1], english: parts[2] };
+  }).filter(r => r.chapter && r.german && r.english);
+
+  const { error } = await sb.from('vocabulary').insert(rows);
+  if (error) { showToast('Fehler beim Import: ' + error.message, 'error'); return; }
+  showToast(`${rows.length} Vokabeln importiert!`, 'success');
+  await loadVocabMeta();
+  render();
+}
+
+async function loadStats(studentId) {
+  state.statsStudent = state.students.find(s => s.id === studentId);
+  
+  const [sessions, reviews] = await Promise.all([
+    sb.from('learning_sessions').select('*').eq('student_id', studentId).order('started_at', { ascending: false }).limit(20),
+    sb.from('reviews').select('*, vocabulary(german, english, level, chapter)').eq('student_id', studentId).order('reviewed_at', { ascending: false }).limit(100)
+  ]);
+
+  const sessionData = sessions.data || [];
+  const reviewData = reviews.data || [];
+
+  const totalReviewed = sessionData.reduce((s, r) => s + (r.cards_reviewed || 0), 0);
+  const totalCorrect = sessionData.reduce((s, r) => s + (r.correct_count || 0), 0);
+  const totalWrong = sessionData.reduce((s, r) => s + (r.wrong_count || 0), 0);
+  const totalTime = sessionData.reduce((s, r) => {
+    if (!r.ended_at) return s;
+    return s + (new Date(r.ended_at) - new Date(r.started_at));
+  }, 0);
+
+  state.statsData = {
+    sessions: sessionData,
+    reviews: reviewData,
+    totalReviewed, totalCorrect, totalWrong,
+    totalTimeMin: Math.round(totalTime / 60000),
+    accuracy: totalReviewed > 0 ? Math.round((totalCorrect / totalReviewed) * 100) : 0
+  };
+  render();
+}
+
+// ========== BUILD HTML ==========
+function buildApp() {
+  if (state.view === 'login') return buildLogin();
+
+  const topbar = `
+    <div class="topbar">
+      <div class="topbar-logo">✦ <span>Vokabel</span>trainer</div>
+      <div class="topbar-right">
+        ${state.profile?.is_admin ? `
+          <div class="nav-tabs">
+            <button class="nav-tab ${state.adminTab === 'students' ? 'active' : ''}" onclick="switchAdminTab('students')">Schüler</button>
+            <button class="nav-tab ${state.adminTab === 'vocab' ? 'active' : ''}" onclick="switchAdminTab('vocab')">Vokabeln</button>
+          </div>` : `
+          <div class="nav-tabs">
+            <button class="nav-tab ${state.studentTab === 'learn' ? 'active' : ''}" onclick="switchStudentTab('learn')">Lernen</button>
+            <button class="nav-tab ${state.studentTab === 'chapters' ? 'active' : ''}" onclick="switchStudentTab('chapters')">Kapitel</button>
+          </div>`}
+        <span class="text-sm text-muted">${state.profile?.full_name || state.profile?.email || ''}</span>
+        <button class="btn btn-ghost btn-sm" onclick="logout()">Abmelden</button>
+      </div>
+    </div>`;
+
+  if (state.view === 'admin') return `<div id="app">${topbar}<div class="main">${buildAdmin()}</div></div>`;
+  return `<div id="app">${topbar}<div class="main">${buildStudent()}</div></div>`;
+}
+
+function buildLogin() {
+  return `
+  <div id="login-view">
+    <div class="login-wrap">
+      <div class="login-hero">
+        <h1 class="login-hero-title">Vokabeln lernen,<br>die <em>wirklich</em> bleiben.</h1>
+        <p class="login-hero-sub">Mit dem Spaced-Repetition-System lernst du Deutsch und Englisch so effizient wie möglich.</p>
+        <div class="login-features">
+          <div class="login-feature"><div class="login-feature-icon" style="background:#eef0ff">🧠</div> Intelligente Wiederholung</div>
+          <div class="login-feature"><div class="login-feature-icon" style="background:#e8faf1">📊</div> Lernfortschritt verfolgen</div>
+          <div class="login-feature"><div class="login-feature-icon" style="background:#fff4ec">🔁</div> DE ↔ EN in beide Richtungen</div>
+        </div>
+      </div>
+      <div class="login-box">
+        <h1 class="login-title">Willkommen 👋</h1>
+        <p class="login-sub">Melde dich an oder erstelle ein Konto</p>
+        <div class="tabs">
+          <button class="tab active" id="tab-login" onclick="switchLoginTab('login')">Anmelden</button>
+          <button class="tab" id="tab-register" onclick="switchLoginTab('register')">Registrieren</button>
+        </div>
+        <div id="login-form">
+          <div class="form-group">
+            <label>E-Mail</label>
+            <input type="email" id="login-email" placeholder="name@example.com">
+          </div>
+          <div class="form-group">
+            <label>Passwort</label>
+            <input type="password" id="login-password" placeholder="••••••••">
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="handleLogin()">Einloggen →</button>
+        </div>
+        <div id="register-form" class="hidden">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="reg-name" placeholder="Dein Name">
+          </div>
+          <div class="form-group">
+            <label>E-Mail</label>
+            <input type="email" id="reg-email" placeholder="name@example.com">
+          </div>
+          <div class="form-group">
+            <label>Passwort</label>
+            <input type="password" id="reg-password" placeholder="Mindestens 6 Zeichen">
+          </div>
+          <div class="form-group">
+            <label>Mein Lehrer</label>
+            <select id="reg-teacher">
+              <option value="">— Lehrer wählen —</option>
+              ${(state.teachers || []).map(t => `<option value="${t.id}">${t.full_name}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="handleRegister()">Konto erstellen →</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildStudent() {
+  if (state.studentTab === 'chapters') return buildChapterSelect();
+  return buildLearnView();
+}
+
+function buildChapterSelect() {
+  const chapters = state.studentChapters || [];
+  const levels = state.studentLevels || [];
+  const filtered = chapters.filter(c => c.level === state.selectedLevel);
+  
+  return `
+    <h1 class="section-title">Kapitel wählen</h1>
+    <p class="section-sub">Wähle ein freigeschaltetes Kapitel zum Lernen</p>
+    <div class="level-pills">
+      ${levels.map(l => `
+        <button class="level-pill ${state.selectedLevel === l ? 'active' : ''}" onclick="selectLevel('${l}')">${l}</button>
+      `).join('')}
+    </div>
+    <div class="chapter-grid">
+      ${filtered.map(c => `
+        <div class="chapter-card ${c.unlocked ? '' : 'locked'}"
+          ${c.unlocked ? `onclick="startSession('${c.level}', '${c.chapter}')"` : ''}>
+          <div class="chapter-num">${c.unlocked ? '✓ Freigeschaltet' : '🔒 Gesperrt'}</div>
+          <div class="chapter-name">Kapitel ${c.chapter}</div>
+          <div class="chapter-count">${c.count} Vokabeln</div>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+function buildLearnView() {
+  if (!state.sessionActive) {
+    return `
+      <div class="empty">
+        <div class="empty-icon">📖</div>
+        <h2 class="empty-title">Noch kein Kapitel gewählt</h2>
+        <p class="text-muted" style="margin-bottom:20px">Wähle ein Kapitel aus deinen freigeschalteten Einheiten</p>
+        <button class="btn btn-primary" onclick="switchStudentTab('chapters')">Kapitel wählen</button>
+      </div>`;
+  }
+
+  const s = state.session;
+
+  // Warten-Screen
+  if (!state.currentCard && state.waitingUntil) {
+    const secsLeft = Math.max(0, Math.ceil((state.waitingUntil - now()) / 1000));
+    return `
+      <div class="queue-waiting">
+        <div class="wait-icon">⏳</div>
+        <div class="wait-label">Nächste Karte kommt in</div>
+        <div class="wait-timer" id="wait-countdown">${formatSeconds(secsLeft)}</div>
+        <div class="text-muted text-sm">Kurze Pause — gleich geht's weiter!</div>
+      </div>`;
+  }
+
+  // Done-Screen
+  if (!state.currentCard && s.pendingQueue?.length === 0) {
+    const accuracy = s.reviewed > 0 ? Math.round((s.correct / s.reviewed) * 100) : 0;
+    return `
+      <div class="done-screen">
+        <div class="done-icon">🎉</div>
+        <h2 class="done-title">Lerneinheit abgeschlossen!</h2>
+        <p class="text-muted" style="margin-bottom:24px">Gut gemacht, ${state.profile?.full_name?.split(' ')[0] || ''}!</p>
+        <div class="admin-grid" style="max-width:400px;margin:0 auto 28px">
+          <div class="stat-card"><div class="stat-big">${s.reviewed}</div><div class="stat-label">Karten gelernt</div></div>
+          <div class="stat-card"><div class="stat-big">${accuracy}%</div><div class="stat-label">Trefferquote</div></div>
+        </div>
+        <div class="flex gap-3 items-center" style="justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="switchStudentTab('chapters')">Neues Kapitel</button>
+          <button class="btn btn-ghost" onclick="startSession('${s.level}', '${s.chapter}')">Wiederholen</button>
+        </div>
+      </div>`;
+  }
+
+  const card = state.currentCard;
+  const vocab = card?.vocab;
+  const front = state.direction === 'de_en' ? vocab?.german : vocab?.english;
+  const back = state.direction === 'de_en' ? vocab?.english : vocab?.german;
+  const progress = s.reviewed / Math.max(s.total, 1);
+
+  return `
+    <div class="flashcard-wrapper">
+      <div style="width:100%;max-width:560px">
+        <div class="flex justify-between items-center mb-4">
+          <div class="flex gap-2 items-center">
+            <span class="text-sm text-muted">Kapitel ${s.chapter} · ${s.level}</span>
+          </div>
+          <div class="direction-toggle">
+            <button class="toggle-btn ${state.direction === 'de_en' ? 'active' : ''}" onclick="setDirection('de_en')">DE→EN</button>
+            <button class="toggle-btn ${state.direction === 'en_de' ? 'active' : ''}" onclick="setDirection('en_de')">EN→DE</button>
+          </div>
+        </div>
+        <div class="progress-bar-outer">
+          <div class="progress-bar-inner" style="width:${Math.round(progress * 100)}%"></div>
+        </div>
+        <div class="session-stats">
+          <div class="session-stat"><div class="stat-dot" style="background:var(--green)"></div>${s.correct} richtig</div>
+          <div class="session-stat"><div class="stat-dot" style="background:var(--red)"></div>${s.wrong} falsch</div>
+          <div class="session-stat text-muted">${s.reviewed}/${s.total}</div>
+        </div>
+      </div>
+
+      <div class="flashcard ${state.showBack ? 'flipped' : ''}" onclick="${state.showBack ? '' : 'flipCard()'}">
+        <div class="flashcard-inner">
+          <div class="flashcard-front">
+            <span class="card-level-badge">${s.level}</span>
+            <span class="card-direction-badge">${state.direction === 'de_en' ? '🇩🇪 → 🇬🇧' : '🇬🇧 → 🇩🇪'}</span>
+            <div class="card-word">${front}</div>
+            <div class="card-hint">Klicke um die Antwort zu sehen</div>
+          </div>
+          <div class="flashcard-back">
+            <span class="card-level-badge">${s.level}</span>
+            <div class="card-translation">${back}</div>
+            <div class="card-hint" style="margin-top:12px">Wie gut wusstest du es?</div>
+          </div>
+        </div>
+      </div>
+
+      ${state.showBack ? `
+      <div class="rating-buttons">
+        ${[1,2,3,4].map(r => `
+          <button class="rating-btn r${r}" onclick="rateCard(${r})">
+            <span class="r-label">${RATING_LABELS[r].label}</span>
+            <span class="r-interval">${RATING_LABELS[r].interval}</span>
+          </button>
+        `).join('')}
+      </div>` : `
+      <button class="btn btn-ghost" onclick="flipCard()">Antwort anzeigen</button>
+      `}
+    </div>`;
+}
+
+function buildAdmin() {
+  if (state.statsData) return buildStatsView();
+  if (state.adminTab === 'vocab') return buildVocabAdmin();
+  return buildStudentsAdmin();
+}
+
+function buildStudentsAdmin() {
+  const modalHtml = state.selectedStudent ? buildChapterModal() : '';
+  return `
+    <h1 class="section-title">Schüler</h1>
+    <p class="section-sub">Verwalte Konten und schalte Kapitel frei</p>
+    <div class="card">
+      ${state.students.length === 0 ? `
+        <div class="empty" style="padding:40px">
+          <div class="empty-icon">👥</div>
+          <h3 class="empty-title">Noch keine Schüler</h3>
+          <p class="text-muted text-sm">Schüler registrieren sich selbst über den Anmeldebereich</p>
+        </div>` :
+        state.students.map(s => `
+          <div class="student-row">
+            <div class="student-info">
+              <div class="student-avatar">${(s.full_name || s.email || '?')[0].toUpperCase()}</div>
+              <div>
+                <div class="student-name">${s.full_name || '—'}</div>
+                <div class="student-email">${s.email}</div>
+              </div>
+            </div>
+            <div class="student-actions">
+              <button class="btn btn-ghost btn-sm" onclick="openChapterModal('${s.id}')">Kapitel verwalten</button>
+              <button class="btn btn-ghost btn-sm" onclick="openStats('${s.id}')">Statistiken</button>
+            </div>
+          </div>
+        `).join('')
+      }
+    </div>
+    ${modalHtml}`;
+}
+
+function buildChapterModal() {
+  const s = state.selectedStudent;
+  const levels = state.vocabLevels;
+  
+  return `
+    <div class="modal-overlay" onclick="closeModal(event)">
+      <div class="modal">
+        <h2 class="modal-title">Kapitel freischalten — ${s.full_name || s.email}</h2>
+        ${levels.map(level => {
+          const chapters = state.allChaptersByLevel[level] || [];
+          return `
+            <div style="margin-bottom:20px">
+              <div class="flex items-center justify-between mb-4">
+                <strong>${level}</strong>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                ${chapters.map(ch => {
+                  const unlocked = state.unlockedForStudent.some(u => u.level === level && u.chapter === ch);
+                  return `<button class="chip ${unlocked ? 'green' : ''}" 
+                    style="cursor:pointer;padding:6px 12px;font-size:13px"
+                    onclick="toggleChapterUnlock('${s.id}', '${level}', '${ch}')">
+                    ${unlocked ? '✓ ' : ''}Kap. ${ch}
+                  </button>`;
+                }).join('')}
+              </div>
+            </div>`;
+        }).join('')}
+        <div class="divider"></div>
+        <button class="btn btn-ghost" onclick="closeModal()">Schließen</button>
+      </div>
+    </div>`;
+}
+
+function buildVocabAdmin() {
+  const levels = state.vocabLevels;
+  return `
+    <h1 class="section-title">Vokabeln</h1>
+    <p class="section-sub">Importiere Vokabellisten als CSV-Datei</p>
+    
+    <div class="card mb-6">
+      <h3 style="margin-bottom:12px">CSV importieren</h3>
+      <p class="text-sm text-muted" style="margin-bottom:16px">Format: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px">kapitel,deutsch,englisch</code> (erste Zeile = Überschrift)</p>
+      <div class="form-group">
+        <label>Sprachlevel</label>
+        <select id="import-level">
+          <option value="A1">A1</option>
+          <option value="A2">A2</option>
+          <option value="B1">B1</option>
+          <option value="B2">B2</option>
+          <option value="C1">C1</option>
+        </select>
+      </div>
+      <div class="upload-zone" onclick="el('csv-file').click()">
+        <input type="file" id="csv-file" accept=".csv" onchange="handleCSV(this)">
+        <div style="font-size:32px;margin-bottom:8px">📁</div>
+        <div style="font-weight:500">CSV-Datei auswählen</div>
+        <div class="text-sm text-muted">oder hier hereinziehen</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:16px">Vorhandene Kapitel</h3>
+      ${levels.length === 0 ? `<p class="text-muted text-sm">Noch keine Vokabeln importiert</p>` :
+        levels.map(level => `
+          <div style="margin-bottom:16px">
+            <div class="flex items-center gap-2 mb-4">
+              <strong>${level}</strong>
+              <span class="chip">${(state.allChaptersByLevel[level] || []).length} Kapitel</span>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              ${(state.allChaptersByLevel[level] || []).map(ch => `
+                <span class="chip" style="font-size:13px;padding:5px 10px">Kap. ${ch}</span>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')
+      }
+    </div>`;
+}
+
+function buildStatsView() {
+  const d = state.statsData;
+  const s = state.statsStudent;
+  return `
+    <div class="flex items-center gap-3 mb-6">
+      <button class="btn btn-ghost btn-sm" onclick="closeStats()">← Zurück</button>
+      <div>
+        <h1 class="section-title" style="margin-bottom:0">${s?.full_name || s?.email}</h1>
+        <p class="text-muted text-sm">${s?.email}</p>
+      </div>
+    </div>
+
+    <div class="admin-grid mb-6">
+      <div class="stat-card"><div class="stat-big">${d.totalReviewed}</div><div class="stat-label">Karten gelernt</div></div>
+      <div class="stat-card"><div class="stat-big">${d.accuracy}%</div><div class="stat-label">Trefferquote</div></div>
+      <div class="stat-card"><div class="stat-big">${d.totalTimeMin}</div><div class="stat-label">Minuten gelernt</div></div>
+      <div class="stat-card"><div class="stat-big">${d.sessions.length}</div><div class="stat-label">Lerneinheiten</div></div>
+    </div>
+
+    <div class="card mb-4">
+      <h3 style="margin-bottom:16px">Letzte Lerneinheiten</h3>
+      ${d.sessions.length === 0 ? `<p class="text-muted text-sm">Noch keine Sessions</p>` : `
+      <table>
+        <thead><tr>
+          <th>Datum</th><th>Dauer</th><th>Karten</th><th>Richtig</th><th>Falsch</th>
+        </tr></thead>
+        <tbody>
+          ${d.sessions.slice(0,10).map(sess => {
+            const dur = sess.ended_at ? Math.round((new Date(sess.ended_at) - new Date(sess.started_at)) / 60000) : '—';
+            const acc = sess.cards_reviewed > 0 ? Math.round((sess.correct_count / sess.cards_reviewed) * 100) : 0;
+            return `<tr>
+              <td>${new Date(sess.started_at).toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+              <td>${dur} Min</td>
+              <td>${sess.cards_reviewed || 0}</td>
+              <td><span class="chip green">${sess.correct_count || 0}</span></td>
+              <td><span class="chip red">${sess.wrong_count || 0}</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:16px">Letzte Bewertungen</h3>
+      ${d.reviews.length === 0 ? `<p class="text-muted text-sm">Noch keine Bewertungen</p>` : `
+      <table>
+        <thead><tr><th>Vokabel</th><th>Richtung</th><th>Bewertung</th><th>Datum</th></tr></thead>
+        <tbody>
+          ${d.reviews.slice(0,20).map(r => {
+            const rLabel = ['','😕 Schlecht','😐 Okay','🙂 Gut','😄 Sehr gut'][r.rating] || r.rating;
+            const rColor = [,'red','','blue','green'][r.rating] || '';
+            return `<tr>
+              <td>${r.vocabulary?.german} / ${r.vocabulary?.english}</td>
+              <td>${r.direction === 'de_en' ? 'DE→EN' : 'EN→DE'}</td>
+              <td><span class="chip ${rColor}">${rLabel}</span></td>
+              <td>${new Date(r.reviewed_at).toLocaleDateString('de-DE')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+
+// ========== EVENTS ==========
+function attachEvents() {
+  // Countdown timer für Warte-Screen
+  if (state.waitingUntil && el('wait-countdown')) {
+    const interval = setInterval(() => {
+      const secsLeft = Math.max(0, Math.ceil((state.waitingUntil - now()) / 1000));
+      const el2 = el('wait-countdown');
+      if (!el2) { clearInterval(interval); return; }
+      el2.textContent = formatSeconds(secsLeft);
+      if (secsLeft <= 0) {
+        clearInterval(interval);
+        // Karte aus pending in activeQueue verschieben
+        const ready = state.session.pendingQueue.filter(c => new Date(c.showAfter) <= now());
+        state.session.pendingQueue = state.session.pendingQueue.filter(c => new Date(c.showAfter) > now());
+        if (ready.length > 0) {
+          state.currentCard = ready.shift();
+          state.session.activeQueue.push(...ready);
+          state.waitingUntil = null;
+        } else if (state.session.pendingQueue.length > 0) {
+          const next = state.session.pendingQueue.reduce((a, b) =>
+            new Date(a.showAfter) < new Date(b.showAfter) ? a : b);
+          state.waitingUntil = new Date(next.showAfter);
+        }
+        state.showBack = false;
+        render();
+      }
+    }, 1000);
+  }
+
+  // Drag and drop for CSV
+  const zone = document.querySelector('.upload-zone');
+  if (zone) {
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--accent)'; });
+    zone.addEventListener('dragleave', () => { zone.style.borderColor = ''; });
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.style.borderColor = '';
+      const file = e.dataTransfer.files[0];
+      if (file) handleCSVFile(file);
+    });
+  }
+}
+
+function formatSeconds(s) {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}:${String(sec).padStart(2,'0')}` : `${sec}s`;
+}
+
+// ========== GLOBAL HANDLERS ==========
+window.handleLogin = async () => {
+  const email = el('login-email')?.value;
+  const pw = el('login-password')?.value;
+  if (!email || !pw) { showToast('Bitte alle Felder ausfüllen', 'error'); return; }
+  await login(email, pw);
+};
+
+window.handleRegister = async () => {
+  const name = el('reg-name')?.value;
+  const email = el('reg-email')?.value;
+  const pw = el('reg-password')?.value;
+  const teacherId = el('reg-teacher')?.value;
+  if (!name || !email || !pw) { showToast('Bitte alle Felder ausfüllen', 'error'); return; }
+  await register(email, pw, name, teacherId);
+};
+
+window.switchLoginTab = async (tab) => {
+  if (tab === 'register' && state.teachers.length === 0) {
+    await loadTeachers();
+    // Re-render the dropdown with loaded teachers
+    const sel = el('reg-teacher');
+    if (sel) {
+      sel.innerHTML = '<option value="">— Lehrer wählen —</option>' +
+        state.teachers.map(t => `<option value="${t.id}">${t.full_name}</option>`).join('');
+    }
+  }
+  el('login-form').classList.toggle('hidden', tab !== 'login');
+  el('register-form').classList.toggle('hidden', tab !== 'register');
+  el('tab-login').classList.toggle('active', tab === 'login');
+  el('tab-register').classList.toggle('active', tab === 'register');
+};
+
+window.logout = logout;
+window.flipCard = () => { state.showBack = true; render(); };
+window.rateCard = rateCard;
+window.setDirection = (d) => { state.direction = d; render(); };
+window.startSession = startSession;
+window.selectLevel = (l) => { state.selectedLevel = l; render(); };
+
+window.switchAdminTab = async (tab) => {
+  state.adminTab = tab;
+  state.statsData = null;
+  if (tab === 'students') await loadStudents();
+  if (tab === 'vocab') await loadVocabMeta();
+  render();
+};
+
+window.switchStudentTab = async (tab) => {
+  state.studentTab = tab;
+  if (tab === 'chapters') {
+    state.sessionActive = false;
+    await loadStudentChapters();
+  }
+  render();
+};
+
+window.openChapterModal = async (studentId) => {
+  const student = state.students.find(s => s.id === studentId);
+  state.selectedStudent = student;
+  await Promise.all([loadVocabMeta(), loadUnlockedForStudent(studentId)]);
+  render();
+};
+
+window.toggleChapterUnlock = toggleChapterUnlock;
+
+window.closeModal = (event) => {
+  if (!event || event.target.classList.contains('modal-overlay')) {
+    state.selectedStudent = null;
+    render();
+  }
+};
+
+window.openStats = async (studentId) => {
+  await loadStudents();
+  await loadStats(studentId);
+};
+
+window.closeStats = () => {
+  state.statsData = null;
+  state.statsStudent = null;
+  render();
+};
+
+window.handleCSV = (input) => {
+  if (input.files[0]) handleCSVFile(input.files[0]);
+};
+
+async function handleCSVFile(file) {
+  const level = el('import-level')?.value || 'A1';
+  await uploadCSV(file, level);
+}
+
+// ========== INIT ==========
+(async () => {
+  await init();
+  if (state.view === 'admin') {
+    await loadStudents();
+    await loadVocabMeta();
+  } else if (state.view === 'student') {
+    await loadStudentChapters();
+    if (!state.studentChapters?.some(c => c.unlocked)) {
+      state.studentTab = 'chapters';
+    }
+  }
+  render();
+})();
+</script>
+</body>
+</html>
