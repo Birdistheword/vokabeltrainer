@@ -1053,13 +1053,53 @@ function buildVocabList() {
 function buildLearnView() {
   if (!state.sessionActive) {
     return `
-      <div class="empty">
-        <div class="empty-icon">📖</div>
-        <h2 class="empty-title">Bereit zum Lernen?</h2>
-        <p class="text-muted" style="margin-bottom:24px">Alle fälligen Karten aus deinen freigeschalteten Kapiteln werden abgefragt.</p>
-        <div class="flex gap-3 items-center" style="justify-content:center;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="startSession(false)">Lernen starten</button>
-          <button class="btn btn-ghost" onclick="startSession(true)" title="Keine neuen Karten — nur bereits bekannte wiederholen">Nur bekannte wiederholen</button>
+      <div style="max-width:560px;margin:40px auto 0;padding:0 8px">
+        <h2 style="font-size:24px;font-weight:800;color:var(--text);margin-bottom:6px;text-align:center">Was möchtest du lernen?</h2>
+        <p class="text-muted" style="text-align:center;margin-bottom:32px;font-size:14px">Wähle deinen Lernmodus</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+          <button onclick="startSession(false)" style="
+            background:var(--accent);color:#fff;
+            border:none;border-radius:16px;padding:32px 20px;
+            cursor:pointer;text-align:center;
+            box-shadow:0 8px 28px rgba(79,110,247,0.35);
+            transition:transform 0.15s,box-shadow 0.15s;
+            font-family:'Nunito',sans-serif;
+          " onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 12px 36px rgba(79,110,247,0.45)'"
+             onmouseout="this.style.transform='';this.style.boxShadow='0 8px 28px rgba(79,110,247,0.35)'">
+            <div style="margin-bottom:16px">
+              <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="26" cy="26" r="26" fill="rgba(255,255,255,0.15)"/>
+                <path d="M16 26h20M30 20l6 6-6 6" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M20 18c0-1.1.9-2 2-2h4a2 2 0 012 2v2h-8v-2z" fill="#fff" opacity="0.7"/>
+                <rect x="18" y="20" width="16" height="12" rx="1.5" stroke="#fff" stroke-width="2" fill="none" opacity="0.7"/>
+              </svg>
+            </div>
+            <div style="font-size:17px;font-weight:800;margin-bottom:6px">Neue Vokabeln</div>
+            <div style="font-size:12px;opacity:0.85;font-weight:600;line-height:1.5">Fällige Karten + bis zu<br>10 neue Vokabeln heute</div>
+          </button>
+
+          <button onclick="startSession(true)" style="
+            background:var(--surface);color:var(--text);
+            border:2px solid var(--border);border-radius:16px;padding:32px 20px;
+            cursor:pointer;text-align:center;
+            box-shadow:0 4px 16px rgba(26,29,53,0.08);
+            transition:transform 0.15s,box-shadow 0.15s,border-color 0.15s;
+            font-family:'Nunito',sans-serif;
+          " onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(26,29,53,0.14)';this.style.borderColor='var(--accent)'"
+             onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(26,29,53,0.08)';this.style.borderColor='var(--border)'">
+            <div style="margin-bottom:16px">
+              <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="26" cy="26" r="26" fill="var(--accent-light)"/>
+                <path d="M32 20a8 8 0 11-11.31 11.31" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/>
+                <path d="M18 26l-2 4 4-1" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M23 26h6M23 30h4" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+              </svg>
+            </div>
+            <div style="font-size:17px;font-weight:800;margin-bottom:6px;color:var(--text)">Wiederholen</div>
+            <div style="font-size:12px;color:var(--text2);font-weight:600;line-height:1.5">Nur bekannte Karten —<br>keine neuen Vokabeln</div>
+          </button>
+
         </div>
       </div>`;
   }
