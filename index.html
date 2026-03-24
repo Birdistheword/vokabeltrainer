@@ -480,6 +480,8 @@ let state = {
   studentTab: 'learn',  // learn | chapters
   selectedLevel: null,
   selectedChapter: null,
+  // Dashboard
+  dashboard: null,
   // Flashcard session
   session: null,
   currentCard: null,
@@ -667,6 +669,32 @@ async function loadLearnedVocab() {
     .eq('student_id', state.user.id)
     .order('ease', { ascending: true });
   state.learnedVocab = (data || []).filter(p => p.vocabulary);
+}
+
+// ========== STUDENT: DASHBOARD ==========
+async function loadDashboard() {
+  const { data: unlocked } = await sb.from('unlocked_chapters').select('level, chapter').eq('student_id', state.user.id);
+  if (!unlocked?.length) { state.dashboard = { dueCount: 0, newAvailable: 0, totalLearned: 0 }; render(); return; }
+
+  const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
+  const { data: allVocab } = await sb.from('vocabulary').select('id, level, chapter');
+  const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
+  const vocabIds = vocab.map(v => v.id);
+
+  const { data: progress } = await sb.from('srs_progress').select('vocabulary_id, next_review').eq('student_id', state.user.id).in('vocabulary_id', vocabIds);
+  const progressSet = new Set((progress || []).map(p => p.vocabulary_id));
+  const dueCount = (progress || []).filter(p => new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
+
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const { data: prevReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).lt('reviewed_at', todayStart.toISOString());
+  const prevIds = new Set((prevReviews || []).map(r => r.vocabulary_id));
+  const { data: todayReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).gte('reviewed_at', todayStart.toISOString());
+  const newTodayCount = new Set((todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevIds.has(id))).size;
+  const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
+  const newAvailable = Math.min(remainingNew, vocab.filter(v => !progressSet.has(v.id)).length);
+
+  state.dashboard = { dueCount, newAvailable, totalLearned: progressSet.size };
+  render();
 }
 
 // ========== STUDENT: LEARNING SESSION ==========
@@ -1125,52 +1153,88 @@ function buildVocabList() {
 
 function buildLearnView() {
   if (!state.sessionActive) {
+    const d = state.dashboard;
+    const firstName = (state.profile?.full_name || '').split(' ')[0] || 'Hey';
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Guten Morgen' : hour < 17 ? 'Hallo' : 'Guten Abend';
+    const dueCount = d?.dueCount ?? '…';
+    const newAvailable = d?.newAvailable ?? '…';
+    const totalLearned = d?.totalLearned ?? '…';
+    const totalNew = typeof dueCount === 'number' && typeof newAvailable === 'number' ? dueCount + newAvailable : '…';
+
     return `
-      <div style="max-width:560px;margin:40px auto 0;padding:0 8px">
-        <h2 style="font-size:24px;font-weight:800;color:var(--text);margin-bottom:6px;text-align:center">Was möchtest du lernen?</h2>
-        <p class="text-muted" style="text-align:center;margin-bottom:32px;font-size:14px">Wähle deinen Lernmodus</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="max-width:600px;margin:0 auto;padding:0 4px">
+
+        <!-- Greeting -->
+        <div style="margin-bottom:32px;padding-top:8px">
+          <p style="font-size:13px;font-weight:700;color:var(--text2);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">${greeting},</p>
+          <h1 style="font-size:32px;font-weight:900;color:var(--text);margin:0;letter-spacing:-0.5px">${firstName}! 👋</h1>
+        </div>
+
+        <!-- Stats row -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:32px">
+          <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;text-align:center;box-shadow:0 2px 8px rgba(26,29,53,0.05)">
+            <div style="font-size:26px;font-weight:900;color:var(--accent)">${totalNew}</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">Heute fällig</div>
+          </div>
+          <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;text-align:center;box-shadow:0 2px 8px rgba(26,29,53,0.05)">
+            <div style="font-size:26px;font-weight:900;color:var(--green)">${totalLearned}</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">Gelernt</div>
+          </div>
+          <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;text-align:center;box-shadow:0 2px 8px rgba(26,29,53,0.05)">
+            <div style="font-size:26px;font-weight:900;color:var(--orange)">${newAvailable}</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">Neu heute</div>
+          </div>
+        </div>
+
+        <!-- Mode cards -->
+        <p style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:12px">Lernmodus wählen</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
 
           <button id="btn-new-vocab" onclick="startSession(false)" style="
-            background:var(--accent);color:#fff;
-            border:none;border-radius:16px;padding:32px 20px;
-            cursor:pointer;text-align:center;
+            background:var(--accent);color:#fff;border:none;border-radius:18px;
+            padding:28px 18px 24px;cursor:pointer;text-align:center;position:relative;overflow:hidden;
             box-shadow:0 8px 28px rgba(79,110,247,0.35);
-            transition:transform 0.15s,box-shadow 0.15s;
-            font-family:'Nunito',sans-serif;
-          " onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 12px 36px rgba(79,110,247,0.45)'"
+            transition:transform 0.15s,box-shadow 0.15s;font-family:'Nunito',sans-serif;
+          " onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 14px 36px rgba(79,110,247,0.45)'"
              onmouseout="this.style.transform='';this.style.boxShadow='0 8px 28px rgba(79,110,247,0.35)'">
-            <div style="margin-bottom:16px">
-              <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="26" cy="26" r="26" fill="rgba(255,255,255,0.15)"/>
-                <path d="M16 26h20M30 20l6 6-6 6" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M20 18c0-1.1.9-2 2-2h4a2 2 0 012 2v2h-8v-2z" fill="#fff" opacity="0.7"/>
-                <rect x="18" y="20" width="16" height="12" rx="1.5" stroke="#fff" stroke-width="2" fill="none" opacity="0.7"/>
+            <div style="position:absolute;top:-18px;right:-18px;width:80px;height:80px;background:rgba(255,255,255,0.08);border-radius:50%"></div>
+            <div style="margin-bottom:14px">
+              <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+                <circle cx="22" cy="22" r="22" fill="rgba(255,255,255,0.15)"/>
+                <path d="M13 22h18M27 16l6 6-6 6" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                <rect x="14" y="14" width="12" height="9" rx="1.5" stroke="#fff" stroke-width="1.8" fill="none" opacity="0.6"/>
               </svg>
             </div>
-            <div style="font-size:17px;font-weight:800;margin-bottom:6px">Neue Vokabeln</div>
-            <div style="font-size:12px;opacity:0.85;font-weight:600;line-height:1.5">Fällige Karten + bis zu<br>10 neue Vokabeln heute</div>
+            <div style="font-size:16px;font-weight:800;margin-bottom:4px">Neue Vokabeln</div>
+            <div style="font-size:11px;opacity:0.8;font-weight:600;margin-bottom:14px;line-height:1.5">Fällige + neue Karten</div>
+            <div style="background:rgba(255,255,255,0.18);border-radius:20px;padding:6px 12px;display:inline-block;font-size:13px;font-weight:800">
+              ${totalNew} Karten
+            </div>
           </button>
 
           <button id="btn-review" onclick="startSession(true)" style="
             background:var(--surface);color:var(--text);
-            border:2px solid var(--border);border-radius:16px;padding:32px 20px;
-            cursor:pointer;text-align:center;
-            box-shadow:0 4px 16px rgba(26,29,53,0.08);
-            transition:transform 0.15s,box-shadow 0.15s,border-color 0.15s;
-            font-family:'Nunito',sans-serif;
-          " onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(26,29,53,0.14)';this.style.borderColor='var(--accent)'"
-             onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(26,29,53,0.08)';this.style.borderColor='var(--border)'">
-            <div style="margin-bottom:16px">
-              <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="26" cy="26" r="26" fill="var(--accent-light)"/>
-                <path d="M32 20a8 8 0 11-11.31 11.31" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/>
-                <path d="M18 26l-2 4 4-1" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M23 26h6M23 30h4" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+            border:2px solid var(--border);border-radius:18px;
+            padding:28px 18px 24px;cursor:pointer;text-align:center;position:relative;overflow:hidden;
+            box-shadow:0 4px 16px rgba(26,29,53,0.07);
+            transition:transform 0.15s,box-shadow 0.15s,border-color 0.15s;font-family:'Nunito',sans-serif;
+          " onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 10px 28px rgba(26,29,53,0.13)';this.style.borderColor='var(--accent)'"
+             onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(26,29,53,0.07)';this.style.borderColor='var(--border)'">
+            <div style="position:absolute;top:-18px;right:-18px;width:80px;height:80px;background:var(--accent-light);border-radius:50%"></div>
+            <div style="margin-bottom:14px">
+              <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+                <circle cx="22" cy="22" r="22" fill="var(--accent-light)"/>
+                <path d="M28 17a8 8 0 11-10.93 10.93" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+                <path d="M14 22l-2 4 4-1" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M19 22h6M19 26h4" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
               </svg>
             </div>
-            <div style="font-size:17px;font-weight:800;margin-bottom:6px;color:var(--text)">Wiederholen</div>
-            <div style="font-size:12px;color:var(--text2);font-weight:600;line-height:1.5">Nur bekannte Karten —<br>keine neuen Vokabeln</div>
+            <div style="font-size:16px;font-weight:800;margin-bottom:4px;color:var(--text)">Wiederholen</div>
+            <div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:14px;line-height:1.5">Nur bekannte Karten</div>
+            <div style="background:var(--accent-light);border-radius:20px;padding:6px 12px;display:inline-block;font-size:13px;font-weight:800;color:var(--accent)">
+              ${dueCount} Karten
+            </div>
           </button>
 
         </div>
@@ -1577,10 +1641,8 @@ window.switchAdminTab = async (tab) => {
 
 window.switchStudentTab = async (tab) => {
   state.studentTab = tab;
-  if (tab === 'chapters') {
-    state.sessionActive = false;
-    await loadStudentChapters();
-  }
+  if (tab === 'learn') { state.sessionActive = false; await loadDashboard(); }
+  if (tab === 'chapters') { state.sessionActive = false; await loadStudentChapters(); }
   if (tab === 'vocab') await loadLearnedVocab();
   render();
 };
@@ -1644,6 +1706,8 @@ async function handleCSVFile(file) {
     await loadStudentChapters();
     if (!state.studentChapters?.some(c => c.unlocked)) {
       state.studentTab = 'chapters';
+    } else {
+      await loadDashboard();
     }
   }
   render();
