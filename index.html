@@ -365,15 +365,6 @@
   .toast-icon { font-size: 20px; flex-shrink: 0; }
   .toast.out { animation: toastOut 0.2s ease forwards; }
 
-  /* REVIEW BUTTON HINT ANIMATION */
-  @keyframes reviewPulse {
-    0%   { outline: 0px solid transparent; transform: translateY(0) scale(1); }
-    25%  { outline: 3px solid var(--green); transform: translateY(-7px) scale(1.02); }
-    55%  { outline: 3px solid var(--green); transform: translateY(-3px) scale(1.01); }
-    75%  { outline: 2px solid rgba(34,192,107,0.4); transform: translateY(-5px) scale(1.01); }
-    100% { outline: 0px solid transparent; transform: translateY(0) scale(1); }
-  }
-  .review-pulse { animation: reviewPulse 0.75s cubic-bezier(0.36,0.07,0.19,0.97) forwards !important; }
   @keyframes toastIn {
     from { opacity:0; transform: translateY(-20px) scale(0.9); }
     to   { opacity:1; transform: translateY(0) scale(1); }
@@ -527,6 +518,50 @@ const NEW_PER_DAY = 10;
 function el(id) { return document.getElementById(id); }
 function now() { return new Date(); }
 function minutesFromNow(m) { return new Date(Date.now() + m * 60000); }
+function animateReviewBtn() {
+  const btn = document.getElementById('btn-review');
+  if (!btn) return;
+
+  const w = btn.offsetWidth;
+  const h = btn.offsetHeight;
+  const rx = 16;
+  const perimeter = 2 * (w + h - 4 * rx) + 2 * Math.PI * rx;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.style.cssText = `position:absolute;inset:-2px;width:${w+4}px;height:${h+4}px;pointer-events:none;z-index:10;overflow:visible`;
+
+  const rect = document.createElementNS(svgNS, 'rect');
+  rect.setAttribute('x', '2'); rect.setAttribute('y', '2');
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', rx); rect.setAttribute('ry', rx);
+  rect.setAttribute('fill', 'none');
+  rect.setAttribute('stroke', '#22c06b');
+  rect.setAttribute('stroke-width', '3');
+  rect.setAttribute('stroke-dasharray', perimeter);
+  rect.setAttribute('stroke-dashoffset', perimeter);
+  svg.appendChild(rect);
+
+  btn.style.position = 'relative';
+  btn.appendChild(svg);
+
+  // Border läuft einmal rum (600ms) dann fade out
+  const duration = 650;
+  let start = null;
+  (function animate(ts) {
+    if (!start) start = ts;
+    const p = Math.min((ts - start) / duration, 1);
+    rect.setAttribute('stroke-dashoffset', perimeter * (1 - p));
+    if (p < 1) { requestAnimationFrame(animate); }
+    else { svg.style.transition = 'opacity 0.3s'; svg.style.opacity = '0'; setTimeout(() => svg.remove(), 300); }
+  })(performance.now());
+
+  // Kurze Scale-Animation
+  btn.style.transition = 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)';
+  btn.style.transform = 'scale(1.05)';
+  setTimeout(() => { btn.style.transform = ''; }, 200);
+}
+
 function showToast(msg, type = '') {
   let wrap = document.getElementById('toast-wrap');
   if (!wrap) {
@@ -688,9 +723,7 @@ async function startSession(reviewOnly = false) {
   const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
 
   if (!reviewOnly && remainingNew === 0) {
-    showToast('Heute keine neuen Vokabeln mehr – du hast dein Tageslimit erreicht!', '');
-    const btn = document.getElementById('btn-review');
-    if (btn) { btn.classList.add('review-pulse'); setTimeout(() => btn.classList.remove('review-pulse'), 800); }
+    animateReviewBtn();
   }
 
   // Sortiere in fällige und neue Karten
