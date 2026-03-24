@@ -695,10 +695,14 @@ async function startSession(reviewOnly = false) {
 
   // Lade bestehenden SRS-Fortschritt
   const vocabIds = vocab.map(v => v.id);
-  const { data: progress } = await sb.from('srs_progress')
+  const { data: progress, error: progressError } = await sb.from('srs_progress')
     .select('*')
     .eq('student_id', state.user.id)
     .in('vocabulary_id', vocabIds);
+
+  // DEBUG – temporär
+  console.log('DEBUG srs_progress:', { count: progress?.length, error: progressError, vocabCount: vocabIds.length, userId: state.user.id });
+  showToast(`DEBUG: ${progress?.length ?? 'null'} Fortschrittseinträge, ${vocabIds.length} Vokabeln, Fehler: ${progressError?.message ?? 'keiner'}`, '');
 
   const progressMap = {};
   progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
