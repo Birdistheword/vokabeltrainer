@@ -700,15 +700,6 @@ async function startSession(reviewOnly = false) {
     .eq('student_id', state.user.id)
     .in('vocabulary_id', vocabIds);
 
-  // DEBUG – temporär
-  const rightNowDebug = now();
-  const dueDebug = (progress || []).filter(p => new Date(p.next_review) <= rightNowDebug + 15 * 60 * 1000);
-  const nextReviews = (progress || []).map(p => {
-    const diff = Math.round((new Date(p.next_review) - rightNowDebug) / 60000);
-    return `ease${p.ease}:${diff}min`;
-  }).join(', ');
-  showToast(`DEBUG: ${dueDebug.length} fällig von ${progress?.length}. next_reviews: ${nextReviews}`, '');
-
   const progressMap = {};
   progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
 
@@ -744,7 +735,7 @@ async function startSession(reviewOnly = false) {
     const p = progressMap[v.id];
     if (!p) {
       newCards.push({ vocab: v, progress: null });
-    } else if (new Date(p.next_review) <= rightNow + 15 * 60 * 1000) {
+    } else if (new Date(p.next_review) <= Date.now() + 15 * 60 * 1000) {
       dueCards.push({ vocab: v, progress: p });
     }
   });
@@ -844,7 +835,7 @@ async function rateCard(rating) {
   const rightNow = now();
   
   // Karten die jetzt oder in den nächsten 15 Min fällig sind sofort einreihen
-  const bundleUntil = rightNow + 15 * 60 * 1000;
+  const bundleUntil = Date.now() + 15 * 60 * 1000;
   const readyPending = state.session.pendingQueue.filter(c => new Date(c.showAfter) <= bundleUntil);
   state.session.pendingQueue = state.session.pendingQueue.filter(c => new Date(c.showAfter) > bundleUntil);
 
