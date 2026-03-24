@@ -704,27 +704,32 @@ async function loadProgressData() {
 
 // ========== STUDENT: DASHBOARD ==========
 async function loadDashboard() {
-  const { data: unlocked } = await sb.from('unlocked_chapters').select('level, chapter').eq('student_id', state.user.id);
-  if (!unlocked?.length) { state.dashboard = { dueCount: 0, newAvailable: 0, totalLearned: 0 }; render(); return; }
+  try {
+    const { data: unlocked } = await sb.from('unlocked_chapters').select('level, chapter').eq('student_id', state.user.id);
+    if (!unlocked?.length) { state.dashboard = { dueCount: 0, newAvailable: 0, totalLearned: 0 }; render(); return; }
 
-  const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
-  const { data: allVocab } = await sb.from('vocabulary').select('id, level, chapter');
-  const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
-  const vocabIds = vocab.map(v => v.id);
+    const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
+    const { data: allVocab } = await sb.from('vocabulary').select('id, level, chapter');
+    const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
+    const vocabIds = vocab.map(v => v.id);
 
-  const { data: progress } = await sb.from('srs_progress').select('vocabulary_id, next_review').eq('student_id', state.user.id).in('vocabulary_id', vocabIds);
-  const progressSet = new Set((progress || []).map(p => p.vocabulary_id));
-  const dueCount = (progress || []).filter(p => new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
+    const { data: progress } = await sb.from('srs_progress').select('vocabulary_id, next_review').eq('student_id', state.user.id).in('vocabulary_id', vocabIds);
+    const progressSet = new Set((progress || []).map(p => p.vocabulary_id));
+    const dueCount = (progress || []).filter(p => new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
 
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const { data: prevReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).lt('reviewed_at', todayStart.toISOString());
-  const prevIds = new Set((prevReviews || []).map(r => r.vocabulary_id));
-  const { data: todayReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).gte('reviewed_at', todayStart.toISOString());
-  const newTodayCount = new Set((todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevIds.has(id))).size;
-  const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
-  const newAvailable = Math.min(remainingNew, vocab.filter(v => !progressSet.has(v.id)).length);
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const { data: prevReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).lt('created_at', todayStart.toISOString());
+    const prevIds = new Set((prevReviews || []).map(r => r.vocabulary_id));
+    const { data: todayReviews } = await sb.from('reviews').select('vocabulary_id').eq('student_id', state.user.id).gte('created_at', todayStart.toISOString());
+    const newTodayCount = new Set((todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevIds.has(id))).size;
+    const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
+    const newAvailable = Math.min(remainingNew, vocab.filter(v => !progressSet.has(v.id)).length);
 
-  state.dashboard = { dueCount, newAvailable, totalLearned: progressSet.size };
+    state.dashboard = { dueCount, newAvailable, totalLearned: progressSet.size };
+  } catch (e) {
+    console.error('loadDashboard error:', e);
+    state.dashboard = { dueCount: 0, newAvailable: 0, totalLearned: 0 };
+  }
   render();
 }
 
@@ -769,13 +774,13 @@ async function startSession(reviewOnly = false) {
   const { data: prevReviews } = await sb.from('reviews')
     .select('vocabulary_id')
     .eq('student_id', state.user.id)
-    .lt('reviewed_at', todayStart.toISOString());
+    .lt('created_at', todayStart.toISOString());
   const prevVocabIds = new Set(prevReviews?.map(r => r.vocabulary_id) || []);
 
   const { data: todayReviews } = await sb.from('reviews')
     .select('vocabulary_id')
     .eq('student_id', state.user.id)
-    .gte('reviewed_at', todayStart.toISOString());
+    .gte('created_at', todayStart.toISOString());
   const newTodayCount = new Set(
     (todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevVocabIds.has(id))
   ).size;
@@ -993,7 +998,7 @@ async function loadStats(studentId) {
   
   const [sessions, reviews] = await Promise.all([
     sb.from('learning_sessions').select('*').eq('student_id', studentId).order('started_at', { ascending: false }).limit(20),
-    sb.from('reviews').select('*, vocabulary(german, english, level, chapter)').eq('student_id', studentId).order('reviewed_at', { ascending: false }).limit(100)
+    sb.from('reviews').select('*, vocabulary(german, english, level, chapter)').eq('student_id', studentId).order('created_at', { ascending: false }).limit(100)
   ]);
 
   const sessionData = sessions.data || [];
@@ -1643,7 +1648,7 @@ function buildStatsView() {
               <td>${r.vocabulary?.german} / ${r.vocabulary?.english}</td>
               <td>${r.direction === 'de_en' ? 'DE→EN' : 'EN→DE'}</td>
               <td><span class="chip ${rColor}">${rLabel}</span></td>
-              <td>${new Date(r.reviewed_at).toLocaleDateString('de-DE')}</td>
+              <td>${new Date(r.created_at).toLocaleDateString('de-DE')}</td>
             </tr>`;
           }).join('')}
         </tbody>
