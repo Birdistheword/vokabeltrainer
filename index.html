@@ -750,9 +750,10 @@ async function rateCard(rating) {
   // Nächste Karte bestimmen
   const rightNow = now();
   
-  // Prüfe ob pending Karten fällig sind
-  const readyPending = state.session.pendingQueue.filter(c => new Date(c.showAfter) <= rightNow);
-  state.session.pendingQueue = state.session.pendingQueue.filter(c => new Date(c.showAfter) > rightNow);
+  // Karten die jetzt oder in den nächsten 15 Min fällig sind sofort einreihen
+  const bundleUntil = rightNow + 15 * 60 * 1000;
+  const readyPending = state.session.pendingQueue.filter(c => new Date(c.showAfter) <= bundleUntil);
+  state.session.pendingQueue = state.session.pendingQueue.filter(c => new Date(c.showAfter) > bundleUntil);
 
   // Kombiniere aktive + fällige pending
   const available = [...state.session.activeQueue, ...readyPending];
