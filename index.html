@@ -701,8 +701,13 @@ async function startSession(reviewOnly = false) {
     .in('vocabulary_id', vocabIds);
 
   // DEBUG – temporär
-  console.log('DEBUG srs_progress:', { count: progress?.length, error: progressError, vocabCount: vocabIds.length, userId: state.user.id });
-  showToast(`DEBUG: ${progress?.length ?? 'null'} Fortschrittseinträge, ${vocabIds.length} Vokabeln, Fehler: ${progressError?.message ?? 'keiner'}`, '');
+  const rightNowDebug = now();
+  const dueDebug = (progress || []).filter(p => new Date(p.next_review) <= rightNowDebug + 15 * 60 * 1000);
+  const nextReviews = (progress || []).map(p => {
+    const diff = Math.round((new Date(p.next_review) - rightNowDebug) / 60000);
+    return `ease${p.ease}:${diff}min`;
+  }).join(', ');
+  showToast(`DEBUG: ${dueDebug.length} fällig von ${progress?.length}. next_reviews: ${nextReviews}`, '');
 
   const progressMap = {};
   progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
