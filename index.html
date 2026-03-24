@@ -662,7 +662,7 @@ async function startSession(reviewOnly = false) {
     const p = progressMap[v.id];
     if (!p) {
       newCards.push({ vocab: v, progress: null });
-    } else if (new Date(p.next_review) <= rightNow) {
+    } else if (new Date(p.next_review) <= rightNow + 15 * 60 * 1000) {
       dueCards.push({ vocab: v, progress: p });
     }
   });
