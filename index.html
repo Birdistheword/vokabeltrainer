@@ -482,6 +482,8 @@ let state = {
   allChaptersByLevel: {},
   // Vocab detail
   viewingVocab: null,
+  // Vocab list
+  learnedVocab: [],
   // Stats
   statsStudent: null,
   statsData: null,
@@ -589,8 +591,17 @@ async function loadStudentChapters() {
   }
 }
 
+// ========== STUDENT: VOCAB LIST ==========
+async function loadLearnedVocab() {
+  const { data } = await sb.from('srs_progress')
+    .select('*, vocabulary(german, english, level, chapter)')
+    .eq('student_id', state.user.id)
+    .order('ease', { ascending: true });
+  state.learnedVocab = (data || []).filter(p => p.vocabulary);
+}
+
 // ========== STUDENT: LEARNING SESSION ==========
-async function startSession() {
+async function startSession(reviewOnly = false) {
   state.studentTab = 'learn';
   state.sessionActive = true;
   state.showBack = false;
@@ -659,7 +670,7 @@ async function startSession() {
   shuffle(dueCards);
   shuffle(newCards);
 
-  const todayNew = newCards.slice(0, remainingNew);
+  const todayNew = reviewOnly ? [] : newCards.slice(0, remainingNew);
 
   if (dueCards.length === 0 && todayNew.length === 0) {
     showToast('Keine Karten fällig – komm später wieder!', 'success');
@@ -890,6 +901,7 @@ function buildApp() {
           <div class="nav-tabs">
             <button class="nav-tab ${state.studentTab === 'learn' ? 'active' : ''}" onclick="switchStudentTab('learn')">Lernen</button>
             <button class="nav-tab ${state.studentTab === 'chapters' ? 'active' : ''}" onclick="switchStudentTab('chapters')">Kapitel</button>
+            <button class="nav-tab ${state.studentTab === 'vocab' ? 'active' : ''}" onclick="switchStudentTab('vocab')">Vokabeln</button>
           </div>`}
         <span class="text-sm text-muted">${state.profile?.full_name || state.profile?.email || ''}</span>
         <button class="btn btn-ghost btn-sm" onclick="logout()">Abmelden</button>
@@ -963,6 +975,7 @@ function buildLogin() {
 
 function buildStudent() {
   if (state.studentTab === 'chapters') return buildChapterSelect();
+  if (state.studentTab === 'vocab') return buildVocabList();
   return buildLearnView();
 }
 
@@ -990,14 +1003,64 @@ function buildChapterSelect() {
     </div>`;
 }
 
+function buildVocabList() {
+  const vocab = state.learnedVocab || [];
+  const ratingLabel = { 1: '😕', 2: '😐', 3: '🙂', 4: '😄' };
+  const ratingColor = { 1: 'red', 2: '', 3: 'blue', 4: 'green' };
+
+  // Gruppiere nach Kapitel
+  const byChapter = {};
+  vocab.forEach(p => {
+    const key = `${p.vocabulary.level} · Kapitel ${p.vocabulary.chapter}`;
+    if (!byChapter[key]) byChapter[key] = [];
+    byChapter[key].push(p);
+  });
+
+  return `
+    <h1 class="section-title">Meine Vokabeln</h1>
+    <p class="section-sub">${vocab.length} Vokabeln bisher gelernt</p>
+    ${vocab.length === 0 ? `
+      <div class="card"><p class="text-muted text-sm">Noch keine Vokabeln gelernt. Starte eine Lernsession!</p></div>` :
+      Object.entries(byChapter).sort().map(([chapter, items]) => `
+        <div class="card mb-4">
+          <div class="flex items-center gap-2" style="margin-bottom:12px">
+            <strong>${chapter}</strong>
+            <span class="chip">${items.length} Vokabeln</span>
+          </div>
+          <table style="width:100%">
+            <thead><tr>
+              <th style="text-align:left;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">Englisch</th>
+              <th style="text-align:left;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">Deutsch</th>
+              <th style="text-align:center;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">Bewertung</th>
+              <th style="text-align:center;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">Abfragen</th>
+            </tr></thead>
+            <tbody>
+              ${items.map(p => `<tr>
+                <td style="padding:6px 4px;border-bottom:1px solid var(--border);font-family:'Lora',serif;font-size:14px">${p.vocabulary.english}</td>
+                <td style="padding:6px 4px;border-bottom:1px solid var(--border);font-family:'Lora',serif;font-size:14px">${p.vocabulary.german}</td>
+                <td style="padding:6px 4px;border-bottom:1px solid var(--border);text-align:center">
+                  <span class="chip ${ratingColor[p.ease] || ''}">${ratingLabel[p.ease] || '—'}</span>
+                </td>
+                <td style="padding:6px 4px;border-bottom:1px solid var(--border);text-align:center;font-size:13px;color:var(--text2)">${p.review_count}×</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `).join('')
+    }`;
+}
+
 function buildLearnView() {
   if (!state.sessionActive) {
     return `
       <div class="empty">
         <div class="empty-icon">📖</div>
         <h2 class="empty-title">Bereit zum Lernen?</h2>
-        <p class="text-muted" style="margin-bottom:20px">Alle fälligen Karten aus deinen freigeschalteten Kapiteln werden abgefragt.</p>
-        <button class="btn btn-primary" onclick="startSession()">Lernen starten</button>
+        <p class="text-muted" style="margin-bottom:24px">Alle fälligen Karten aus deinen freigeschalteten Kapiteln werden abgefragt.</p>
+        <div class="flex gap-3 items-center" style="justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="startSession(false)">Lernen starten</button>
+          <button class="btn btn-ghost" onclick="startSession(true)" title="Keine neuen Karten — nur bereits bekannte wiederholen">Nur bekannte wiederholen</button>
+        </div>
       </div>`;
   }
 
@@ -1028,7 +1091,7 @@ function buildLearnView() {
           <div class="stat-card"><div class="stat-big">${accuracy}%</div><div class="stat-label">Trefferquote</div></div>
         </div>
         <div class="flex gap-3 items-center" style="justify-content:center;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="startSession()">Nochmal lernen</button>
+          <button class="btn btn-primary" onclick="startSession(false)">Nochmal lernen</button>
         </div>
       </div>`;
   }
@@ -1405,6 +1468,7 @@ window.switchStudentTab = async (tab) => {
     state.sessionActive = false;
     await loadStudentChapters();
   }
+  if (tab === 'vocab') await loadLearnedVocab();
   render();
 };
 
