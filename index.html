@@ -364,6 +364,16 @@
   .toast.error { background: var(--red); }
   .toast-icon { font-size: 20px; flex-shrink: 0; }
   .toast.out { animation: toastOut 0.2s ease forwards; }
+
+  /* REVIEW BUTTON HINT ANIMATION */
+  @keyframes reviewPulse {
+    0%   { outline: 0px solid transparent; transform: translateY(0) scale(1); }
+    25%  { outline: 3px solid var(--green); transform: translateY(-7px) scale(1.02); }
+    55%  { outline: 3px solid var(--green); transform: translateY(-3px) scale(1.01); }
+    75%  { outline: 2px solid rgba(34,192,107,0.4); transform: translateY(-5px) scale(1.01); }
+    100% { outline: 0px solid transparent; transform: translateY(0) scale(1); }
+  }
+  .review-pulse { animation: reviewPulse 0.75s cubic-bezier(0.36,0.07,0.19,0.97) forwards !important; }
   @keyframes toastIn {
     from { opacity:0; transform: translateY(-20px) scale(0.9); }
     to   { opacity:1; transform: translateY(0) scale(1); }
@@ -676,6 +686,12 @@ async function startSession(reviewOnly = false) {
     (todayReviews || []).map(r => r.vocabulary_id).filter(id => !prevVocabIds.has(id))
   ).size;
   const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
+
+  if (!reviewOnly && remainingNew === 0) {
+    showToast('Heute keine neuen Vokabeln mehr – du hast dein Tageslimit erreicht!', '');
+    const btn = document.getElementById('btn-review');
+    if (btn) { btn.classList.add('review-pulse'); setTimeout(() => btn.classList.remove('review-pulse'), 800); }
+  }
 
   // Sortiere in fällige und neue Karten
   const rightNow = now();
@@ -1082,7 +1098,7 @@ function buildLearnView() {
         <p class="text-muted" style="text-align:center;margin-bottom:32px;font-size:14px">Wähle deinen Lernmodus</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
 
-          <button onclick="startSession(false)" style="
+          <button id="btn-new-vocab" onclick="startSession(false)" style="
             background:var(--accent);color:#fff;
             border:none;border-radius:16px;padding:32px 20px;
             cursor:pointer;text-align:center;
@@ -1103,7 +1119,7 @@ function buildLearnView() {
             <div style="font-size:12px;opacity:0.85;font-weight:600;line-height:1.5">Fällige Karten + bis zu<br>10 neue Vokabeln heute</div>
           </button>
 
-          <button onclick="startSession(true)" style="
+          <button id="btn-review" onclick="startSession(true)" style="
             background:var(--surface);color:var(--text);
             border:2px solid var(--border);border-radius:16px;padding:32px 20px;
             cursor:pointer;text-align:center;
