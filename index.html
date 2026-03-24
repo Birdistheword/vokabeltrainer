@@ -480,6 +480,8 @@ let state = {
   selectedStudent: null,
   unlockedForStudent: [],
   allChaptersByLevel: {},
+  // Vocab detail
+  viewingVocab: null,
   // Stats
   statsStudent: null,
   statsData: null,
@@ -1167,12 +1169,43 @@ function buildVocabAdmin() {
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:8px">
               ${(state.allChaptersByLevel[level] || []).map(ch => `
-                <span class="chip" style="font-size:13px;padding:5px 10px">Kap. ${ch}</span>
+                <button class="chip" style="font-size:13px;padding:5px 10px;cursor:pointer;border:none;font-family:inherit"
+                  onclick="openChapterVocab('${level}', '${ch}')">Kap. ${ch}</button>
               `).join('')}
             </div>
           </div>
         `).join('')
       }
+    </div>
+    ${state.viewingVocab ? buildVocabModal() : ''}`;
+}
+
+function buildVocabModal() {
+  const { level, chapter, items } = state.viewingVocab;
+  return `
+    <div class="modal-overlay" onclick="closeVocabModal(event)">
+      <div class="modal" style="max-width:600px;max-height:80vh;display:flex;flex-direction:column">
+        <div class="flex items-center justify-between" style="margin-bottom:16px">
+          <h2 class="modal-title" style="margin:0">${level} — Kapitel ${chapter}</h2>
+          <span class="chip">${items.length} Vokabeln</span>
+        </div>
+        <div style="overflow-y:auto;flex:1">
+          <table style="width:100%">
+            <thead><tr>
+              <th style="text-align:left;padding:8px 4px;border-bottom:1.5px solid var(--border)">Deutsch</th>
+              <th style="text-align:left;padding:8px 4px;border-bottom:1.5px solid var(--border)">Englisch</th>
+            </tr></thead>
+            <tbody>
+              ${items.map(v => `<tr>
+                <td style="padding:7px 4px;border-bottom:1px solid var(--border);font-family:'Lora',serif">${v.german}</td>
+                <td style="padding:7px 4px;border-bottom:1px solid var(--border);font-family:'Lora',serif">${v.english}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="divider"></div>
+        <button class="btn btn-ghost" onclick="closeVocabModal()">Schließen</button>
+      </div>
     </div>`;
 }
 
@@ -1342,6 +1375,19 @@ window.switchStudentTab = async (tab) => {
     await loadStudentChapters();
   }
   render();
+};
+
+window.openChapterVocab = async (level, chapter) => {
+  const { data } = await sb.from('vocabulary').select('german, english').eq('level', level).eq('chapter', chapter).order('german');
+  state.viewingVocab = { level, chapter, items: data || [] };
+  render();
+};
+
+window.closeVocabModal = (event) => {
+  if (!event || event.target.classList.contains('modal-overlay')) {
+    state.viewingVocab = null;
+    render();
+  }
 };
 
 window.openChapterModal = async (studentId) => {
