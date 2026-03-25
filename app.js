@@ -247,19 +247,29 @@ async function loadDashboard() {
     const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
     const { data: allVocab } = await sb.from('vocabulary').select('id, level, chapter');
     const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
-    const vocabIds = vocab.map(v => v.id);
+    const vocabIds = new Set(vocab.map(v => v.id));
 
-    // Kein vocabIds-Filter: vermeidet URL-Längenproblem, Student hat nur eigene Progress-Rows
-    const { data: progress } = await sb.from('srs_progress').select('vocabulary_id, next_review').eq('student_id', state.user.id);
-    const progressSet = new Set((progress || []).filter(p => vocabIds.includes(p.vocabulary_id)).map(p => p.vocabulary_id));
-    const dueCount = (progress || []).filter(p => vocabIds.includes(p.vocabulary_id) && new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
+    // Alle Progress-Rows laden (Student hat nur eigene)
+    const { data: progress } = await sb.from('srs_progress')
+      .select('vocabulary_id, next_review, first_seen_at')
+      .eq('student_id', state.user.id);
 
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const { count: newTodayCount } = await sb.from('srs_progress')
-      .select('*', { count: 'exact', head: true })
-      .eq('student_id', state.user.id)
-      .gte('first_seen_at', todayStart.toISOString());
-    const remainingNew = Math.max(0, NEW_PER_DAY - (newTodayCount || 0));
+    const progressMap = {};
+    (progress || []).forEach(p => { progressMap[p.vocabulary_id] = p; });
+
+    // Nur Vocab aus freigeschalteten Kapiteln betrachten
+    const myVocabProgress = (progress || []).filter(p => vocabIds.has(p.vocabulary_id));
+    const progressSet = new Set(myVocabProgress.map(p => p.vocabulary_id));
+    const dueCount = myVocabProgress.filter(p => new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
+
+    // Neue heute: UTC-Tagesdatum aus gespeicherten first_seen_at ermitteln
+    // → timezone-unabhängig, konsistent mit startSession
+    const todayUTC = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const newTodayCount = (progress || []).filter(p =>
+      p.first_seen_at && new Date(p.first_seen_at).toISOString().startsWith(todayUTC)
+    ).length;
+
+    const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
     const newAvailable = Math.min(remainingNew, vocab.filter(v => !progressSet.has(v.id)).length);
 
     state.dashboard = { dueCount, newAvailable, totalLearned: progressSet.size };
@@ -289,38 +299,32 @@ async function startSession(reviewOnly = false) {
     return;
   }
 
-  // Lade alle Vokabeln aus allen freigeschalteten Kapiteln
+  // Lade alle Vokabeln aus freigeschalteten Kapiteln + kompletten SRS-Fortschritt
   const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
   const { data: allVocab } = await sb.from('vocabulary').select('*');
   const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
 
-  // Lade bestehenden SRS-Fortschritt (kein vocabIds-Filter: vermeidet URL-Längenproblem,
-  // ein Schüler hat nur Progress für seine eigenen Wörter)
-  const vocabIds = vocab.map(v => v.id);
+  // Student hat nur eigene Progress-Rows → kein vocabId-Filter nötig
   const { data: progress } = await sb.from('srs_progress')
     .select('*')
     .eq('student_id', state.user.id);
 
   const progressMap = {};
-  progress?.forEach(p => { progressMap[p.vocabulary_id] = p; });
+  (progress || []).forEach(p => { progressMap[p.vocabulary_id] = p; });
 
-  // Ermittle wie viele neue Karten heute bereits eingeführt wurden
-  // Kein vocabIds-Filter: Student hat nur Progress für eigene Wörter
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-
-  const { count: newTodayCount } = await sb.from('srs_progress')
-    .select('*', { count: 'exact', head: true })
-    .eq('student_id', state.user.id)
-    .gte('first_seen_at', todayStart.toISOString());
-  const remainingNew = Math.max(0, NEW_PER_DAY - (newTodayCount || 0));
+  // Neue heute: UTC-Tagesdatum aus gespeicherten first_seen_at ermitteln
+  // → timezone-unabhängig, kein extra DB-Query nötig, identisch zu loadDashboard
+  const todayUTC = new Date().toISOString().split('T')[0];
+  const newTodayCount = (progress || []).filter(p =>
+    p.first_seen_at && new Date(p.first_seen_at).toISOString().startsWith(todayUTC)
+  ).length;
+  const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
 
   if (!reviewOnly && remainingNew === 0) {
     animateReviewBtn();
   }
 
-  // Sortiere in fällige und neue Karten
-  const rightNow = now();
+  // Sortiere: fällige Wiederholungen vs. neue Karten
   const dueCards = [];
   const newCards = [];
 
@@ -616,7 +620,7 @@ function buildApp() {
       <div class="module-tabs">
         ${MODULES.map(m => `
           <button class="module-tab ${state.activeModule === m.id ? 'active' : ''} ${m.comingSoon ? 'coming-soon' : ''}"
-            onclick="switchModule('${m.id}')"
+            onclick="switchModule('${m.id}')">
             ${m.icon} ${m.label}
             ${m.comingSoon ? '<span class="module-coming-badge">bald</span>' : ''}
           </button>`).join('')}
@@ -887,7 +891,6 @@ function buildLearnView() {
     const dueCount = d?.dueCount ?? '…';
     const newAvailable = d?.newAvailable ?? '…';
     const totalLearned = d?.totalLearned ?? '…';
-    const totalNew = typeof dueCount === 'number' && typeof newAvailable === 'number' ? dueCount + newAvailable : '…';
 
     return `
       <div style="max-width:600px;margin:0 auto;padding:0 4px">
@@ -901,8 +904,8 @@ function buildLearnView() {
         <!-- Stats row -->
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:32px">
           <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;text-align:center;box-shadow:0 2px 8px rgba(26,29,53,0.05)">
-            <div style="font-size:26px;font-weight:900;color:var(--accent)">${totalNew}</div>
-            <div style="font-size:11px;font-weight:700;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">Heute fällig</div>
+            <div style="font-size:26px;font-weight:900;color:var(--accent)">${dueCount}</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">Wiederholungen</div>
           </div>
           <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:16px;text-align:center;box-shadow:0 2px 8px rgba(26,29,53,0.05)">
             <div style="font-size:26px;font-weight:900;color:var(--green)">${totalLearned}</div>
@@ -933,10 +936,10 @@ function buildLearnView() {
                 <rect x="14" y="14" width="12" height="9" rx="1.5" stroke="#fff" stroke-width="1.8" fill="none" opacity="0.6"/>
               </svg>
             </div>
-            <div style="font-size:16px;font-weight:800;margin-bottom:4px">Neue Vokabeln</div>
-            <div style="font-size:11px;opacity:0.8;font-weight:600;margin-bottom:14px;line-height:1.5">Fällige + neue Karten</div>
+            <div style="font-size:16px;font-weight:800;margin-bottom:4px">Lernen</div>
+            <div style="font-size:11px;opacity:0.8;font-weight:600;margin-bottom:14px;line-height:1.5">${newAvailable > 0 ? `+${newAvailable} neue` : 'Nur Wiederholungen'}</div>
             <div style="background:rgba(255,255,255,0.18);border-radius:20px;padding:6px 12px;display:inline-block;font-size:13px;font-weight:800">
-              ${totalNew} Karten
+              ${typeof dueCount === 'number' && typeof newAvailable === 'number' ? dueCount + newAvailable : '…'} Karten
             </div>
           </button>
 
