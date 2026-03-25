@@ -1111,7 +1111,7 @@ function buildApp() {
       <div class="module-tabs">
         ${MODULES.map(m => `
           <button class="module-tab ${state.activeModule === m.id ? 'active' : ''} ${m.comingSoon ? 'coming-soon' : ''}"
-            ${m.comingSoon ? '' : `onclick="switchModule('${m.id}')"`}>
+            onclick="switchModule('${m.id}')"
             ${m.icon} ${m.label}
             ${m.comingSoon ? '<span class="module-coming-badge">bald</span>' : ''}
           </button>`).join('')}
@@ -1120,7 +1120,7 @@ function buildApp() {
     </div>`;
 
   const content = isAdmin ? buildAdmin() : buildStudent();
-  return `<div id="app">${topbar}${moduleBar}<div class="main">${content}</div></div>`;
+  return `${topbar}${moduleBar}<div class="main">${content}</div>`;
 }
 
 function buildLogin() {
