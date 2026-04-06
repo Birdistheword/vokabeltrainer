@@ -62,19 +62,10 @@ async function generateHomework(studentName, lessonNotes) {
   render();
 
   try {
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-homework`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'apikey': SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ studentName, lessonNotes })
+    const { data, error } = await sb.functions.invoke('generate-homework', {
+      body: { studentName, lessonNotes }
     });
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    if (data.error) throw new Error(data.error);
+    if (error) throw error;
     state.hwPreview = data;
   } catch (e) {
     console.error('Generate homework error:', e);
