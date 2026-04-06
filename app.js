@@ -42,6 +42,16 @@ let state = {
   statsData: null,
   // Module system
   activeModule: 'vocab',  // vocab | homework
+  // Homework
+  hwAssignments: [],
+  hwActive: null,
+  hwCreating: false,
+  hwCreateStudent: null,
+  hwCreateNotes: '',
+  hwGenerating: false,
+  hwPreview: null,
+  hwViewResults: null,
+  hwResults: null,
 };
 
 // ========== INTERVALS (Minuten) ==========
@@ -583,7 +593,7 @@ async function loadStats(studentId) {
 // ========== BUILD HTML ==========
 const MODULES = [
   { id: 'vocab',    icon: '📚', label: 'Vokabeltrainer' },
-  { id: 'homework', icon: '📝', label: 'Hausaufgaben', comingSoon: true },
+  { id: 'homework', icon: '📝', label: 'Hausaufgaben' },
 ];
 
 function buildApp() {
@@ -694,45 +704,12 @@ function buildLogin() {
 }
 
 function buildStudent() {
-  if (state.activeModule === 'homework') return buildHomeworkDummy();
+  if (state.activeModule === 'homework') return buildHomework();
   if (state.studentTab === 'chapters') return buildProgressView();
   if (state.studentTab === 'vocab') return buildVocabList();
   return buildLearnView();
 }
 
-function buildHomeworkDummy() {
-  const isAdmin = state.profile?.is_admin;
-  return `
-    <div style="display:flex;flex-direction:column;align-items:center;padding:80px 24px;text-align:center">
-      <div style="width:88px;height:88px;border-radius:24px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:24px;border:1.5px solid var(--border)">📝</div>
-      <h2 style="font-size:28px;margin-bottom:10px">Hausaufgaben</h2>
-      <p class="text-muted" style="max-width:400px;line-height:1.8;font-size:15px">
-        ${isAdmin
-          ? 'Hier wirst du Schülern Hausaufgaben zuweisen, den Fortschritt verfolgen und Feedback geben können.'
-          : 'Hier bekommst du von deiner Lehrperson Hausaufgaben zugeteilt und kannst sie direkt hier erledigen.'}
-      </p>
-      <div style="margin-top:32px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
-        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:18px 24px;min-width:160px;opacity:0.5">
-          <div style="font-size:24px;margin-bottom:8px">📋</div>
-          <div style="font-weight:700;font-size:14px">${isAdmin ? 'Aufgaben erstellen' : 'Aufgabenliste'}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:4px">Bald verfügbar</div>
-        </div>
-        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:18px 24px;min-width:160px;opacity:0.5">
-          <div style="font-size:24px;margin-bottom:8px">💬</div>
-          <div style="font-weight:700;font-size:14px">${isAdmin ? 'Feedback geben' : 'Notizen & Chat'}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:4px">Bald verfügbar</div>
-        </div>
-        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:18px 24px;min-width:160px;opacity:0.5">
-          <div style="font-size:24px;margin-bottom:8px">📊</div>
-          <div style="font-weight:700;font-size:14px">${isAdmin ? 'Fortschritt' : 'Mein Fortschritt'}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:4px">Bald verfügbar</div>
-        </div>
-      </div>
-      <div style="margin-top:32px;display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:20px;background:var(--accent-light);color:var(--accent);font-size:13px;font-weight:700">
-        🚧 Dieses Modul ist in Entwicklung
-      </div>
-    </div>`;
-}
 
 function getBadgeSVG(tier, size) {
   const s = size || 64;
@@ -1062,7 +1039,7 @@ function buildLearnView() {
 }
 
 function buildAdmin() {
-  if (state.activeModule === 'homework') return buildHomeworkDummy();
+  if (state.activeModule === 'homework') return buildHomework();
   if (state.statsData) return buildStatsView();
   if (state.adminTab === 'vocab') return buildVocabAdmin();
   return buildStudentsAdmin();
@@ -1397,6 +1374,11 @@ window.selectLevel = (l) => { state.selectedLevel = l; render(); };
 window.switchModule = async (moduleId) => {
   state.activeModule = moduleId;
   state.statsData = null;
+  state.hwActive = null;
+  if (moduleId === 'homework') {
+    if (state.profile?.is_admin) await loadStudents();
+    await loadHomework();
+  }
   render();
 };
 
