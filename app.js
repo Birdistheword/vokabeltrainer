@@ -52,6 +52,8 @@ let state = {
   hwPreview: null,
   hwViewResults: null,
   hwResults: null,
+  hwStudentView: null,
+  hwSubmissions: {},
 };
 
 // ========== INTERVALS (Minuten) ==========

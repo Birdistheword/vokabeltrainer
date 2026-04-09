@@ -1,5 +1,8 @@
 // ========== HOMEWORK MODULE ==========
-// Separate file for all homework-related logic and UI
+
+// Module-level drag state (avoids re-render during drag)
+let _hwDragExId = null;
+let _hwDragWord = null;
 
 // ========== ACTIVE ASSIGNMENT STATE INIT ==========
 function initHwActive(assignment) {
@@ -39,11 +42,40 @@ function initHwActive(assignment) {
 async function loadHomework() {
   try {
     if (state.profile?.is_admin) {
-      const { data } = await sb.from('homework_assignments')
-        .select('*, profiles!student_id(full_name, email)')
+      // Step 1: load assignments
+      const { data: assignments, error } = await sb.from('homework_assignments')
+        .select('*')
         .eq('teacher_id', state.user.id)
         .order('created_at', { ascending: false });
-      state.hwAssignments = data || [];
+
+      if (error) throw error;
+
+      // Step 2: load profiles for all students
+      const studentIds = [...new Set((assignments || []).map(a => a.student_id))];
+      let profileMap = {};
+      if (studentIds.length > 0) {
+        const { data: profiles } = await sb.from('profiles')
+          .select('id, full_name, email')
+          .in('id', studentIds);
+        (profiles || []).forEach(p => { profileMap[p.id] = p; });
+      }
+
+      // Step 3: load submissions for all assignments
+      const assignmentIds = (assignments || []).map(a => a.id);
+      let submissionsMap = {};
+      if (assignmentIds.length > 0) {
+        const { data: submissions } = await sb.from('homework_submissions')
+          .select('assignment_id, score, submitted_at')
+          .in('assignment_id', assignmentIds);
+        (submissions || []).forEach(s => { submissionsMap[s.assignment_id] = s; });
+      }
+
+      state.hwAssignments = (assignments || []).map(a => ({
+        ...a,
+        studentProfile: profileMap[a.student_id] || null
+      }));
+      state.hwSubmissions = submissionsMap;
+
     } else {
       const { data } = await sb.from('homework_assignments')
         .select('*')
@@ -62,26 +94,12 @@ async function generateHomework(studentName, lessonNotes) {
   render();
 
   try {
-    const { data: authData } = await sb.auth.getSession();
-    const token = authData?.session?.access_token;
-    console.log('Session token available:', !!token);
-
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-homework`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token || SUPABASE_ANON_KEY}`,
-        'apikey': SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ studentName, lessonNotes })
+    const { data, error } = await sb.functions.invoke('generate-homework', {
+      body: { studentName, lessonNotes }
     });
 
-    const responseText = await response.text();
-    console.log('Function response:', response.status, responseText);
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${responseText}`);
-    const data = JSON.parse(responseText);
-    if (data.error) throw new Error(data.error);
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
     state.hwPreview = data;
   } catch (e) {
     console.error('Generate homework error:', e);
@@ -120,14 +138,12 @@ async function submitHomework() {
   if (!state.hwActive) return;
   const { assignment, exState } = state.hwActive;
 
-  // Calculate score
   let totalPoints = 0;
   let earnedPoints = 0;
 
   for (const ex of assignment.exercises) {
     const es = exState[ex.id];
     if (!es?.feedback) continue;
-
     if (ex.type === 'odd_one_out') {
       totalPoints += ex.content.items.length;
       earnedPoints += es.feedback.correct || 0;
@@ -174,6 +190,7 @@ function buildHomework() {
   if (state.profile?.is_admin) {
     if (state.hwViewResults) return buildHomeworkTeacherResults();
     if (state.hwCreating) return buildHomeworkTeacherCreate();
+    if (state.hwStudentView) return buildHomeworkTeacherStudentView();
     return buildHomeworkTeacher();
   }
   if (state.hwActive) return buildHomeworkStudentActive();
@@ -183,54 +200,121 @@ function buildHomework() {
 // ========== TEACHER UI ==========
 
 function buildHomeworkTeacher() {
-  const assignments = state.hwAssignments || [];
   const students = state.students || [];
+  const assignments = state.hwAssignments || [];
+  const submissions = state.hwSubmissions || {};
+
+  // Compute per-student stats
+  const statsMap = {};
+  for (const a of assignments) {
+    const sid = a.student_id;
+    if (!statsMap[sid]) statsMap[sid] = { pending: 0, completed: 0, scores: [] };
+    if (a.status === 'completed') {
+      statsMap[sid].completed++;
+      const sub = submissions[a.id];
+      if (sub?.score != null) statsMap[sid].scores.push(sub.score);
+    } else {
+      statsMap[sid].pending++;
+    }
+  }
 
   return `
     <h1 class="section-title">Hausaufgaben</h1>
 
-    <div class="card mb-6">
-      <h3 style="margin-bottom:16px">Neue Hausaufgaben erstellen</h3>
-      ${students.length === 0
-        ? `<p class="text-muted text-sm">Noch keine Schüler vorhanden.</p>`
-        : students.map(s => `
-          <div class="student-row">
-            <div class="student-info">
-              <div class="student-avatar">${(s.full_name || s.email || '?')[0].toUpperCase()}</div>
-              <div>
-                <div class="student-name">${s.full_name || '—'}</div>
-                <div class="student-email">${s.email}</div>
-              </div>
-            </div>
-            <button class="btn btn-primary btn-sm" onclick="hwStartCreate('${s.id}')">
-              + Aufgabe erstellen
-            </button>
-          </div>`).join('')
-      }
-    </div>
-
-    <div class="card">
-      <h3 style="margin-bottom:16px">Bisherige Aufgaben</h3>
-      ${assignments.length === 0
-        ? `<p class="text-muted text-sm">Noch keine Hausaufgaben erstellt.</p>`
-        : assignments.map(a => {
-            const studentName = a.profiles?.full_name || a.profiles?.email || 'Unbekannt';
-            const date = new Date(a.created_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    ${students.length === 0
+      ? `<div class="card" style="text-align:center;padding:48px">
+          <div style="font-size:48px;margin-bottom:16px">👥</div>
+          <p class="text-muted">Noch keine Schüler vorhanden.</p>
+        </div>`
+      : `<div class="hw-student-grid">
+          ${students.map(s => {
+            const stats = statsMap[s.id] || { pending: 0, completed: 0, scores: [] };
+            const avgScore = stats.scores.length > 0
+              ? Math.round(stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length)
+              : null;
+            const initials = (s.full_name || s.email || '?').slice(0, 2).toUpperCase();
+            const totalAssignments = stats.pending + stats.completed;
             return `
-              <div class="student-row">
-                <div class="student-info">
-                  <div class="student-avatar" style="background:var(--accent-light);color:var(--accent);font-size:18px">📝</div>
-                  <div>
-                    <div class="student-name">${a.title}</div>
-                    <div class="student-email">${studentName} · ${date}</div>
+              <div class="hw-student-card">
+                <div class="hw-student-card-header">
+                  <div class="hw-student-avatar-lg">${initials}</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.full_name || '—'}</div>
+                    <div class="text-muted text-sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.email}</div>
                   </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:10px">
+                <div class="hw-student-stats">
+                  <div class="hw-stat-chip ${stats.pending > 0 ? 'orange' : ''}">
+                    <span class="hw-stat-num">${stats.pending}</span>
+                    <span class="hw-stat-label">offen</span>
+                  </div>
+                  <div class="hw-stat-chip ${stats.completed > 0 ? 'green' : ''}">
+                    <span class="hw-stat-num">${stats.completed}</span>
+                    <span class="hw-stat-label">erledigt</span>
+                  </div>
+                  ${avgScore !== null ? `
+                    <div class="hw-stat-chip blue">
+                      <span class="hw-stat-num">${avgScore}%</span>
+                      <span class="hw-stat-label">Ø Score</span>
+                    </div>` : ''}
+                </div>
+                <div class="hw-student-actions">
+                  <button class="btn btn-ghost btn-sm" style="flex:1" onclick="hwStudentViewBtn('${s.id}')">
+                    Einsehen ${totalAssignments > 0 ? `(${totalAssignments})` : ''} →
+                  </button>
+                  <button class="btn btn-primary btn-sm" style="flex:1" onclick="hwStartCreate('${s.id}')">
+                    + Erstellen
+                  </button>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>`
+    }`;
+}
+
+function buildHomeworkTeacherStudentView() {
+  const studentId = state.hwStudentView;
+  const student = (state.students || []).find(s => s.id === studentId);
+  const assignments = (state.hwAssignments || []).filter(a => a.student_id === studentId);
+  const submissions = state.hwSubmissions || {};
+  const studentName = student?.full_name || student?.email || 'Schüler';
+
+  return `
+    <div style="max-width:700px;margin:0 auto">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
+        <button class="btn btn-ghost btn-sm" onclick="hwStudentViewBack()">← Zurück</button>
+        <div style="flex:1;min-width:0">
+          <h1 class="section-title" style="margin:0">Hausaufgaben</h1>
+          <p class="text-muted text-sm">${studentName}</p>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="hwStartCreate('${studentId}')">+ Erstellen</button>
+      </div>
+
+      ${assignments.length === 0
+        ? `<div class="card" style="text-align:center;padding:48px">
+            <div style="font-size:40px;margin-bottom:16px">📭</div>
+            <p class="text-muted">Noch keine Hausaufgaben für ${studentName}.</p>
+          </div>`
+        : assignments.map(a => {
+            const sub = submissions[a.id];
+            const date = new Date(a.created_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const submittedDate = sub?.submitted_at
+              ? new Date(sub.submitted_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+              : null;
+            return `
+              <div class="card mb-3" style="display:flex;align-items:center;gap:16px;padding:16px 20px">
+                <div style="width:42px;height:42px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📝</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:700;font-size:15px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.title}</div>
+                  <div class="text-muted text-sm">${date} · ${a.exercises?.length || 0} Übungen${submittedDate ? ` · Eingereicht am ${submittedDate}` : ''}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                  ${sub?.score != null ? `<span style="font-weight:800;font-size:15px;color:${sub.score >= 70 ? 'var(--green)' : sub.score >= 40 ? 'var(--orange)' : 'var(--red)'}">${sub.score}%</span>` : ''}
                   <span class="chip ${a.status === 'completed' ? 'green' : ''}" style="font-size:11px">
-                    ${a.status === 'completed' ? '✓ Eingereicht' : 'Ausstehend'}
+                    ${a.status === 'completed' ? '✓ Erledigt' : 'Ausstehend'}
                   </span>
                   ${a.status === 'completed'
-                    ? `<button class="btn btn-ghost btn-sm" onclick="hwViewResultsBtn('${a.id}')">Ergebnisse</button>`
+                    ? `<button class="btn btn-ghost btn-sm" onclick="hwViewResultsBtn('${a.id}')">Details</button>`
                     : ''}
                 </div>
               </div>`;
@@ -281,10 +365,10 @@ function buildHomeworkTeacherCreate() {
           </div>
 
           ${state.hwPreview.exercises.map((ex, i) => `
-            <div style="padding:14px;background:var(--surface2);border-radius:10px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start">
-              <div style="width:28px;height:28px;border-radius:8px;background:var(--accent-light);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0">${i + 1}</div>
+            <div style="padding:14px;background:var(--surface2);border-radius:10px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start;border-left:3px solid ${hwExTypeColor(ex.type)}">
+              <div style="width:28px;height:28px;border-radius:8px;background:${hwExTypeColor(ex.type)}22;color:${hwExTypeColor(ex.type)};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${hwExTypeIcon(ex.type)}</div>
               <div>
-                <div style="font-size:11px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${hwExTypeName(ex.type)}</div>
+                <div style="font-size:11px;font-weight:800;color:${hwExTypeColor(ex.type)};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${hwExTypeName(ex.type)}</div>
                 <div style="font-size:14px;font-weight:600;color:var(--text)">${ex.instruction}</div>
               </div>
             </div>
@@ -306,7 +390,8 @@ function buildHomeworkTeacherResults() {
 
   if (!assignment) return `<button class="btn btn-ghost" onclick="hwCloseResults()">← Zurück</button>`;
 
-  const studentName = assignment.profiles?.full_name || assignment.profiles?.email || 'Schüler';
+  const studentProfile = assignment.studentProfile;
+  const studentName = studentProfile?.full_name || studentProfile?.email || 'Schüler';
 
   return `
     <div style="max-width:700px;margin:0 auto">
@@ -336,9 +421,10 @@ function buildHomeworkTeacherResults() {
         </div>
 
         ${assignment.exercises.map((ex, i) => `
-          <div class="card mb-3">
-            <div style="font-size:11px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">
-              Aufgabe ${i + 1} · ${hwExTypeName(ex.type)}
+          <div class="card mb-3" style="border-top:3px solid ${hwExTypeColor(ex.type)}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="font-size:16px">${hwExTypeIcon(ex.type)}</span>
+              <span style="font-size:11px;font-weight:800;color:${hwExTypeColor(ex.type)};text-transform:uppercase;letter-spacing:0.5px">Aufgabe ${i + 1} · ${hwExTypeName(ex.type)}</span>
             </div>
             <div style="font-weight:600;margin-bottom:14px;color:var(--text)">${ex.instruction}</div>
             ${buildExerciseResultsView(ex, submission.answers?.[ex.id])}
@@ -354,7 +440,7 @@ function buildExerciseResultsView(ex, exState) {
   if (ex.type === 'type_in_gap' || ex.type === 'drag_to_gap') {
     return ex.content.sentences.map(sent => {
       const answers = exState.answer?.[sent.id] || {};
-      return `<div style="margin-bottom:10px;padding:10px 14px;background:var(--surface2);border-radius:8px;line-height:2.2">
+      return `<div style="margin-bottom:10px;padding:10px 14px;background:var(--surface2);border-radius:8px;line-height:2.5">
         ${sent.parts.map((p, i) => {
           if (typeof p === 'string') return `<span>${p}</span>`;
           const key = `${sent.id}_${i}`;
@@ -428,11 +514,11 @@ function buildHomeworkStudent() {
       ${pending.map(a => `
         <div class="card mb-3 hw-assignment-card" onclick="hwOpenAssignment('${a.id}')">
           <div style="display:flex;align-items:center;justify-content:space-between">
-            <div>
+            <div style="flex:1;min-width:0">
               <div style="font-weight:800;font-size:16px;margin-bottom:4px">${a.title}</div>
               <div class="text-muted text-sm">${new Date(a.created_at).toLocaleDateString('de-DE')} · ${a.exercises?.length || 0} Übungen</div>
             </div>
-            <div style="color:var(--accent);font-size:22px;font-weight:800">→</div>
+            <div style="color:var(--accent);font-size:22px;font-weight:800;margin-left:12px">→</div>
           </div>
         </div>
       `).join('')}
@@ -458,17 +544,29 @@ function buildHomeworkStudentActive() {
   const { assignment, exState, dragState, orderState, submission } = state.hwActive;
   const allDone = assignment.exercises.every(ex => exState[ex.id]?.done);
   const doneCount = Object.values(exState).filter(e => e.done).length;
+  const total = assignment.exercises.length;
+  const progressPct = Math.round((doneCount / total) * 100);
 
   return `
     <div style="max-width:640px;margin:0 auto">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
         <button class="btn btn-ghost btn-sm" onclick="hwCloseAssignment()">← Zurück</button>
-        <div style="flex:1">
-          <h1 class="section-title" style="margin:0">${assignment.title}</h1>
-          <p class="text-muted text-sm">${assignment.exercises.length} Übungen</p>
+        <div style="flex:1;min-width:0">
+          <h1 class="section-title" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${assignment.title}</h1>
         </div>
-        ${!submission ? `<span class="chip">${doneCount}/${assignment.exercises.length} fertig</span>` : ''}
       </div>
+
+      ${!submission ? `
+        <div style="margin-bottom:24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span class="text-muted text-sm">${doneCount} von ${total} Aufgaben fertig</span>
+            <span style="font-size:12px;font-weight:700;color:var(--accent)">${progressPct}%</span>
+          </div>
+          <div style="height:6px;background:var(--surface2);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${progressPct}%;background:var(--accent);border-radius:4px;transition:width 0.4s ease"></div>
+          </div>
+        </div>
+      ` : ''}
 
       ${submission ? `
         <div class="card mb-6" style="background:rgba(34,192,107,0.08);border-color:var(--green);text-align:center;padding:32px">
@@ -480,11 +578,7 @@ function buildHomeworkStudentActive() {
 
       ${assignment.exercises.map((ex, i) => `
         <div style="margin-bottom:24px">
-          <div style="font-size:11px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;padding-left:4px;display:flex;align-items:center;gap:8px">
-            <span>Aufgabe ${i + 1} · ${hwExTypeName(ex.type)}</span>
-            ${exState[ex.id]?.done ? `<span style="color:var(--green);font-size:14px">✓</span>` : ''}
-          </div>
-          ${buildExercise(ex, exState[ex.id], dragState[ex.id], orderState[ex.id])}
+          ${buildExercise(ex, exState[ex.id], dragState[ex.id], orderState[ex.id], i)}
         </div>
       `).join('')}
 
@@ -504,22 +598,49 @@ function buildHomeworkStudentActive() {
 
 // ========== EXERCISE RENDERERS ==========
 
-function buildExercise(ex, es, ds, os) {
+function buildExercise(ex, es, ds, os, idx) {
   switch (ex.type) {
-    case 'type_in_gap':   return buildTypeInGap(ex, es);
-    case 'drag_to_gap':   return buildDragToGap(ex, es, ds);
-    case 'word_ordering': return buildWordOrdering(ex, es, os);
-    case 'odd_one_out':   return buildOddOneOut(ex, es);
+    case 'type_in_gap':   return buildTypeInGap(ex, es, idx);
+    case 'drag_to_gap':   return buildDragToGap(ex, es, ds, idx);
+    case 'word_ordering': return buildWordOrdering(ex, es, os, idx);
+    case 'odd_one_out':   return buildOddOneOut(ex, es, idx);
     default: return `<div class="card"><p class="text-muted text-sm">Unbekannter Aufgabentyp: ${ex.type}</p></div>`;
   }
 }
 
-function buildTypeInGap(ex, es) {
+function hwExTypeColor(type) {
+  return { type_in_gap: 'var(--accent)', drag_to_gap: '#7c3aed', word_ordering: 'var(--orange)', odd_one_out: 'var(--green)' }[type] || 'var(--accent)';
+}
+
+function hwExTypeIcon(type) {
+  return { type_in_gap: '✏️', drag_to_gap: '🧩', word_ordering: '🔀', odd_one_out: '🔍' }[type] || '📝';
+}
+
+function hwExTypeColorRaw(type) {
+  return { type_in_gap: '#3b82f6', drag_to_gap: '#7c3aed', word_ordering: '#f97316', odd_one_out: '#22c06b' }[type] || '#3b82f6';
+}
+
+function buildExerciseHeader(ex, idx, es) {
+  const color = hwExTypeColor(ex.type);
+  const icon = hwExTypeIcon(ex.type);
+  const name = hwExTypeName(ex.type);
+  const done = es?.done;
+  return `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-left:2px">
+      <span style="font-size:15px">${icon}</span>
+      <span style="font-size:11px;font-weight:800;color:${color};text-transform:uppercase;letter-spacing:0.6px">Aufgabe ${(idx ?? 0) + 1} · ${name}</span>
+      ${done ? `<span style="color:var(--green);font-size:13px;margin-left:auto">✓ Fertig</span>` : ''}
+    </div>`;
+}
+
+function buildTypeInGap(ex, es, idx) {
   const done = es?.done;
   const feedback = es?.feedback;
+  const color = hwExTypeColor(ex.type);
 
   return `
-    <div class="card exercise-card">
+    <div class="card exercise-card" style="border-top:3px solid ${color}">
+      ${buildExerciseHeader(ex, idx, es)}
       <p class="ex-instruction">${ex.instruction}</p>
       ${ex.content.sentences.map(sent => `
         <div class="ex-sentence">
@@ -542,22 +663,22 @@ function buildTypeInGap(ex, es) {
       `).join('')}
       ${!done
         ? `<button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="hwCheckTypeInGap('${ex.id}')">Überprüfen</button>`
-        : `<div class="ex-feedback ${feedback?.allCorrect ? 'correct' : 'partial'}">
-            ${feedback?.allCorrect ? '✓ Alles richtig!' : `${feedback?.correct} von ${feedback?.total} richtig`}
-          </div>`
+        : buildFeedbackBar(feedback)
       }
     </div>`;
 }
 
-function buildDragToGap(ex, es, ds) {
+function buildDragToGap(ex, es, ds, idx) {
   const done = es?.done;
   const feedback = es?.feedback;
   const selected = ds?.selected;
   const gaps = ds?.gaps || {};
   const available = ds?.available || [];
+  const color = hwExTypeColor(ex.type);
 
   return `
-    <div class="card exercise-card">
+    <div class="card exercise-card" style="border-top:3px solid ${color}">
+      ${buildExerciseHeader(ex, idx, es)}
       <p class="ex-instruction">${ex.instruction}</p>
       ${ex.content.sentences.map(sent => `
         <div class="ex-sentence">
@@ -569,40 +690,50 @@ function buildDragToGap(ex, es, ds) {
             if (placed) {
               return `<span class="gap-slot filled${done ? (fb ? ' correct' : ' wrong') : ''}"
                 onclick="${done ? '' : `hwRemoveFromGap('${ex.id}', '${key}')`}"
+                ondragover="${done ? '' : "event.preventDefault();this.classList.add('drag-over')"}"
+                ondragleave="${done ? '' : "this.classList.remove('drag-over')"}"
+                ondrop="${done ? '' : `hwDrop(this,'${ex.id}','${key}')`}"
                 style="cursor:${done ? 'default' : 'pointer'}">
-                ${placed}${!done ? ' <span style="font-size:11px;opacity:0.5">×</span>' : ''}
+                ${placed}${!done ? ' <span style="font-size:10px;opacity:0.4">×</span>' : ''}
                 ${done && !fb ? `<span style="font-size:11px;opacity:0.7"> (→ ${p.gap})</span>` : ''}
               </span>`;
             }
             return `<span class="gap-slot empty${!done && selected ? ' ready' : ''}"
               onclick="${done ? '' : `hwPlaceWord('${ex.id}', '${key}')`}"
-              style="cursor:${done || !selected ? 'default' : 'pointer'}">___</span>`;
+              ondragover="${done ? '' : "event.preventDefault();this.classList.add('drag-over')"}"
+              ondragleave="${done ? '' : "this.classList.remove('drag-over')"}"
+              ondrop="${done ? '' : `hwDrop(this,'${ex.id}','${key}')`}"
+              style="cursor:${done || (!selected && !_hwDragWord) ? 'default' : 'pointer'}">___</span>`;
           }).join('')}
         </div>
       `).join('')}
       ${!done ? `
-        <div class="word-bank">
+        <div class="word-bank" style="margin-top:14px">
           ${available.map(w => `
             <button class="word-chip${selected === w ? ' selected' : ''}"
-              onclick="hwSelectWord('${ex.id}', ${JSON.stringify(w)})">
+              draggable="true"
+              ondragstart="hwDragStart(this)"
+              ondragend="hwDragEnd(this)"
+              data-exid="${ex.id}"
+              data-word="${w.replace(/"/g, '&quot;')}"
+              onclick="hwSelectWordBtn(this)">
               ${w}
             </button>`).join('')}
         </div>
         <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="hwCheckDragToGap('${ex.id}')">Überprüfen</button>
-      ` : `
-        <div class="ex-feedback ${feedback?.allCorrect ? 'correct' : 'partial'}">
-          ${feedback?.allCorrect ? '✓ Alles richtig!' : `${feedback?.correct} von ${feedback?.total} richtig`}
-        </div>`
+      ` : buildFeedbackBar(feedback)
       }
     </div>`;
 }
 
-function buildWordOrdering(ex, es, os) {
+function buildWordOrdering(ex, es, os, idx) {
   const done = es?.done;
   const feedback = es?.feedback;
+  const color = hwExTypeColor(ex.type);
 
   return `
-    <div class="card exercise-card">
+    <div class="card exercise-card" style="border-top:3px solid ${color}">
+      ${buildExerciseHeader(ex, idx, es)}
       <p class="ex-instruction">${ex.instruction}</p>
       ${ex.content.sentences.map((sent, si) => {
         const sentState = os?.sentences?.[sent.id] || { placed: [], remaining: [...sent.scrambled] };
@@ -612,9 +743,12 @@ function buildWordOrdering(ex, es, os) {
             <div class="order-target${done ? (fb ? ' correct' : ' wrong') : ''}">
               ${sentState.placed.length === 0
                 ? `<span style="color:var(--text3);font-size:13px;align-self:center">Wörter hier einordnen…</span>`
-                : sentState.placed.map((w, idx) => `
+                : sentState.placed.map((w, pidx) => `
                   <button class="word-chip placed"
-                    ${done ? 'disabled' : `onclick="hwOrderRemove('${ex.id}', '${sent.id}', ${idx})"`}>
+                    data-exid="${ex.id}"
+                    data-sentid="${sent.id}"
+                    data-idx="${pidx}"
+                    ${done ? 'disabled' : 'onclick="hwOrderRemoveBtn(this)"'}>
                     ${w}
                   </button>`).join('')
               }
@@ -623,7 +757,10 @@ function buildWordOrdering(ex, es, os) {
               <div class="word-bank" style="margin-top:8px">
                 ${sentState.remaining.map(w => `
                   <button class="word-chip"
-                    onclick="hwOrderAdd('${ex.id}', '${sent.id}', ${JSON.stringify(w)})">
+                    data-exid="${ex.id}"
+                    data-sentid="${sent.id}"
+                    data-word="${w.replace(/"/g, '&quot;')}"
+                    onclick="hwOrderAddBtn(this)">
                     ${w}
                   </button>`).join('')}
               </div>
@@ -634,16 +771,19 @@ function buildWordOrdering(ex, es, os) {
       }).join('')}
       ${!done
         ? `<button class="btn btn-primary btn-sm" style="margin-top:16px" onclick="hwCheckWordOrdering('${ex.id}')">Überprüfen</button>`
-        : `<div class="ex-feedback ${feedback?.allCorrect ? 'correct' : 'partial'}" style="margin-top:12px">
-            ${feedback?.allCorrect ? '✓ Alles richtig!' : `${feedback?.correct} von ${feedback?.total} richtig`}
-          </div>`
+        : buildFeedbackBar(feedback)
       }
     </div>`;
 }
 
-function buildOddOneOut(ex, es) {
+function buildOddOneOut(ex, es, idx) {
+  const done = es?.done;
+  const feedback = es?.feedback;
+  const color = hwExTypeColor(ex.type);
+
   return `
-    <div class="card exercise-card">
+    <div class="card exercise-card" style="border-top:3px solid ${color}">
+      ${buildExerciseHeader(ex, idx, es)}
       <p class="ex-instruction">${ex.instruction}</p>
       ${ex.content.items.map((item, ii) => {
         const given = es?.answer?.[item.id];
@@ -653,17 +793,21 @@ function buildOddOneOut(ex, es) {
           <div style="margin-bottom:${ii < ex.content.items.length - 1 ? '20px' : '0'}">
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
               ${item.words.map(w => {
-                let btnStyle = 'background:var(--surface2);border-color:var(--border);color:var(--text)';
+                let chipClass = 'word-chip';
+                let extraStyle = '';
                 if (answered) {
                   if (w === item.correct) {
-                    btnStyle = 'background:rgba(34,192,107,0.15);border-color:var(--green);color:var(--green)';
+                    extraStyle = 'background:rgba(34,192,107,0.15);border-color:var(--green);color:var(--green)';
                   } else if (w === given && !correct) {
-                    btnStyle = 'background:rgba(240,74,90,0.1);border-color:var(--red);color:var(--red)';
+                    extraStyle = 'background:rgba(240,74,90,0.1);border-color:var(--red);color:var(--red)';
                   }
                 }
-                return `<button class="word-chip"
-                  style="${btnStyle};padding:8px 18px;font-size:14px;font-weight:700"
-                  ${answered ? 'disabled' : `onclick="hwOddSelect('${ex.id}', '${item.id}', ${JSON.stringify(w)})"`}>
+                return `<button class="${chipClass}"
+                  data-exid="${ex.id}"
+                  data-itemid="${item.id}"
+                  data-word="${w.replace(/"/g, '&quot;')}"
+                  style="padding:8px 18px;font-size:14px;font-weight:700;${extraStyle}"
+                  ${answered ? 'disabled' : 'onclick="hwOddSelectBtn(this)"'}>
                   ${w}
                 </button>`;
               }).join('')}
@@ -676,6 +820,18 @@ function buildOddOneOut(ex, es) {
             ` : ''}
           </div>`;
       }).join('')}
+      ${done ? buildFeedbackBar(feedback) : ''}
+    </div>`;
+}
+
+function buildFeedbackBar(feedback) {
+  if (!feedback) return '';
+  const allCorrect = feedback.allCorrect;
+  return `
+    <div class="ex-feedback ${allCorrect ? 'correct' : 'partial'}" style="margin-top:14px">
+      ${allCorrect
+        ? '🎉 Alles richtig!'
+        : `${feedback.correct} von ${feedback.total} richtig — ${feedback.total - feedback.correct} ${feedback.total - feedback.correct === 1 ? 'Fehler' : 'Fehler'}`}
     </div>`;
 }
 
@@ -711,6 +867,11 @@ window.hwCheckTypeInGap = (exId) => {
   render();
 };
 
+// Click-to-select via data attribute (fixes JSON.stringify quote escaping bug)
+window.hwSelectWordBtn = (btn) => {
+  hwSelectWord(btn.dataset.exid, btn.dataset.word);
+};
+
 window.hwSelectWord = (exId, word) => {
   const ds = state.hwActive.dragState[exId];
   if (!ds) return;
@@ -718,11 +879,15 @@ window.hwSelectWord = (exId, word) => {
   render();
 };
 
-window.hwPlaceWord = (exId, gapKey) => {
+window.hwPlaceWord = (exId, gapKey, wordOverride) => {
   const ds = state.hwActive.dragState[exId];
-  if (!ds || !ds.selected) return;
-  ds.gaps[gapKey] = ds.selected;
-  ds.available = ds.available.filter(w => w !== ds.selected);
+  if (!ds) return;
+  const word = wordOverride !== undefined ? wordOverride : ds.selected;
+  if (!word) return;
+  // If gap already filled, return old word to bank
+  if (ds.gaps[gapKey]) ds.available.push(ds.gaps[gapKey]);
+  ds.gaps[gapKey] = word;
+  ds.available = ds.available.filter(w => w !== word);
   ds.selected = null;
   render();
 };
@@ -733,6 +898,27 @@ window.hwRemoveFromGap = (exId, gapKey) => {
   const word = ds.gaps[gapKey];
   if (word) { ds.gaps[gapKey] = null; ds.available.push(word); }
   render();
+};
+
+// Drag & Drop handlers
+window.hwDragStart = (chip) => {
+  _hwDragExId = chip.dataset.exid;
+  _hwDragWord = chip.dataset.word;
+  chip.style.opacity = '0.5';
+};
+
+window.hwDragEnd = (chip) => {
+  chip.style.opacity = '';
+  _hwDragExId = null;
+  _hwDragWord = null;
+};
+
+window.hwDrop = (slot, exId, gapKey) => {
+  slot.classList.remove('drag-over');
+  if (!_hwDragWord) return;
+  hwPlaceWord(exId, gapKey, _hwDragWord);
+  _hwDragExId = null;
+  _hwDragWord = null;
 };
 
 window.hwCheckDragToGap = (exId) => {
@@ -763,6 +949,15 @@ window.hwCheckDragToGap = (exId) => {
     feedback: { allCorrect: correct === total, correct, total, items }
   };
   render();
+};
+
+// Word ordering via data attributes
+window.hwOrderAddBtn = (btn) => {
+  hwOrderAdd(btn.dataset.exid, btn.dataset.sentid, btn.dataset.word);
+};
+
+window.hwOrderRemoveBtn = (btn) => {
+  hwOrderRemove(btn.dataset.exid, btn.dataset.sentid, parseInt(btn.dataset.idx));
 };
 
 window.hwOrderAdd = (exId, sentId, word) => {
@@ -809,6 +1004,11 @@ window.hwCheckWordOrdering = (exId) => {
     feedback: { allCorrect: correct === total, correct, total, items }
   };
   render();
+};
+
+// Odd one out via data attributes
+window.hwOddSelectBtn = (btn) => {
+  hwOddSelect(btn.dataset.exid, btn.dataset.itemid, btn.dataset.word);
 };
 
 window.hwOddSelect = (exId, itemId, word) => {
@@ -888,6 +1088,16 @@ window.hwViewResultsBtn = async (assignmentId) => {
 window.hwCloseResults = () => {
   state.hwViewResults = null;
   state.hwResults = null;
+  render();
+};
+
+window.hwStudentViewBtn = (studentId) => {
+  state.hwStudentView = studentId;
+  render();
+};
+
+window.hwStudentViewBack = () => {
+  state.hwStudentView = null;
   render();
 };
 

@@ -608,6 +608,57 @@
   }
   @keyframes hw-spin { to { transform: rotate(360deg); } }
 
+  /* Homework: student grid (teacher view) */
+  .hw-student-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .hw-student-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .hw-student-card:hover { border-color: var(--accent); box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+  .hw-student-card-header { display: flex; align-items: center; gap: 12px; }
+  .hw-student-avatar-lg {
+    width: 46px; height: 46px;
+    border-radius: 14px;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-weight: 900;
+    font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: 0.5px;
+  }
+  .hw-student-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  .hw-stat-chip {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    min-width: 52px;
+  }
+  .hw-stat-chip.green { background: rgba(34,192,107,0.1); border-color: rgba(34,192,107,0.3); }
+  .hw-stat-chip.orange { background: rgba(255,140,66,0.1); border-color: rgba(255,140,66,0.3); }
+  .hw-stat-chip.blue { background: var(--accent-light); border-color: rgba(59,130,246,0.3); }
+  .hw-stat-num { font-size: 18px; font-weight: 900; line-height: 1; }
+  .hw-stat-label { font-size: 10px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 2px; }
+  .hw-stat-chip.green .hw-stat-num { color: var(--green); }
+  .hw-stat-chip.orange .hw-stat-num { color: var(--orange); }
+  .hw-stat-chip.blue .hw-stat-num { color: var(--accent); }
+  .hw-student-actions { display: flex; gap: 8px; }
+
+  /* Drag over highlight */
+  .gap-slot.drag-over { border-color: #7c3aed; background: rgba(124,58,237,0.12); }
+
   /* Responsive */
   @media(max-width: 700px) {
     .login-wrap { flex-direction: column; gap: 32px; }
