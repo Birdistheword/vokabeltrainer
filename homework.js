@@ -457,7 +457,7 @@ function buildExerciseResultsView(ex, exState) {
   if (ex.type === 'word_ordering') {
     return ex.content.sentences.map(sent => {
       const placed = exState.answer?.[sent.id] || [];
-      const correct = JSON.stringify(placed) === JSON.stringify(sent.correct);
+      const correct = placed.map(w => w.toLowerCase()).join(' ') === sent.correct.map(w => w.toLowerCase()).join(' ');
       return `<div style="padding:10px 14px;background:${correct ? 'rgba(34,192,107,0.08)' : 'rgba(240,74,90,0.05)'};border:1.5px solid ${correct ? 'var(--green)' : 'var(--red)'};border-radius:8px;margin-bottom:8px">
         <div style="font-weight:700;color:${correct ? 'var(--green)' : 'var(--red)'}">${placed.join(' ') || '—'} ${correct ? '✓' : '✗'}</div>
         ${!correct ? `<div style="font-size:12px;color:var(--text2);margin-top:4px">Richtig: ${sent.correct.join(' ')}</div>` : ''}
@@ -993,7 +993,7 @@ window.hwCheckWordOrdering = (exId) => {
   for (const sent of ex.content.sentences) {
     const placed = os.sentences[sent.id]?.placed || [];
     answer[sent.id] = placed;
-    const isCorrect = JSON.stringify(placed) === JSON.stringify(sent.correct);
+    const isCorrect = placed.map(w => w.toLowerCase()).join(' ') === sent.correct.map(w => w.toLowerCase()).join(' ');
     items[sent.id] = isCorrect;
     total++;
     if (isCorrect) correct++;
