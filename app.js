@@ -54,6 +54,10 @@ let state = {
   hwResults: null,
   hwStudentView: null,
   hwSubmissions: {},
+  // Sentence generation
+  sentenceGenProgress: null, // { done, total, status }
+  // Exercise state (per-card, reset on each new card)
+  exState: null,
 };
 
 // ========== INTERVALS (Minuten) ==========
@@ -293,13 +297,14 @@ async function loadDashboard() {
 }
 
 // ========== STUDENT: LEARNING SESSION ==========
-async function startSession(reviewOnly = false) {
+// mode: 'new' | 'review'
+async function startSession(mode) {
   state.studentTab = 'learn';
   state.sessionActive = true;
   state.showBack = false;
   state.waitingUntil = null;
+  state.exState = null;
 
-  // Lade freigeschaltete Kapitel
   const { data: unlocked } = await sb.from('unlocked_chapters')
     .select('level, chapter')
     .eq('student_id', state.user.id);
@@ -311,12 +316,10 @@ async function startSession(reviewOnly = false) {
     return;
   }
 
-  // Lade alle Vokabeln aus freigeschalteten Kapiteln + kompletten SRS-Fortschritt
   const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
-  const { data: allVocab } = await sb.from('vocabulary').select('*');
-  const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
+  const { data: allVocabData } = await sb.from('vocabulary').select('*');
+  const vocab = (allVocabData || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
 
-  // Student hat nur eigene Progress-Rows → kein vocabId-Filter nötig
   const { data: progress } = await sb.from('srs_progress')
     .select('*')
     .eq('student_id', state.user.id);
@@ -324,44 +327,57 @@ async function startSession(reviewOnly = false) {
   const progressMap = {};
   (progress || []).forEach(p => { progressMap[p.vocabulary_id] = p; });
 
-  // Neue heute: UTC-Tagesdatum aus gespeicherten first_seen_at ermitteln
-  // → timezone-unabhängig, kein extra DB-Query nötig, identisch zu loadDashboard
   const todayUTC = new Date().toISOString().split('T')[0];
   const newTodayCount = (progress || []).filter(p =>
     p.first_seen_at && new Date(p.first_seen_at).toISOString().startsWith(todayUTC)
   ).length;
   const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
 
-  if (!reviewOnly && remainingNew === 0) {
-    animateReviewBtn();
-  }
+  let cards = [];
 
-  // Sortiere: fällige Wiederholungen vs. neue Karten
-  const dueCards = [];
-  const newCards = [];
+  if (mode === 'new') {
+    const newCards = vocab
+      .filter(v => !progressMap[v.id])
+      .map(v => ({ vocab: v, progress: null, exerciseType: 'flashcard' }));
+    shuffle(newCards);
+    cards = newCards.slice(0, remainingNew);
 
-  vocab.forEach(v => {
-    const p = progressMap[v.id];
-    if (!p) {
-      newCards.push({ vocab: v, progress: null });
-    } else if (new Date(p.next_review) <= Date.now() + 15 * 60 * 1000) {
-      dueCards.push({ vocab: v, progress: p });
+    if (cards.length === 0) {
+      const msg = remainingNew === 0
+        ? 'Du hast heute dein Limit von 10 neuen Wörtern erreicht!'
+        : 'Keine neuen Vokabeln mehr – alle wurden bereits gelernt!';
+      showToast(msg, 'success');
+      state.sessionActive = false;
+      render();
+      return;
     }
-  });
+  } else {
+    // review: only due cards with mixed exercise types
+    const EXERCISE_POOL = ['flashcard', 'multiple_choice', 'type_the_word', 'letter_unscramble', 'sentence_builder'];
+    const dueCards = vocab
+      .filter(v => {
+        const p = progressMap[v.id];
+        return p && new Date(p.next_review) <= Date.now() + 15 * 60 * 1000;
+      })
+      .map(v => {
+        const available = EXERCISE_POOL.filter(t =>
+          t !== 'sentence_builder' || !!v.example_sentence
+        );
+        const exerciseType = available[Math.floor(Math.random() * available.length)];
+        return { vocab: v, progress: progressMap[v.id], exerciseType };
+      });
 
-  shuffle(dueCards);
-  shuffle(newCards);
+    shuffle(dueCards);
+    cards = dueCards;
 
-  const todayNew = reviewOnly ? [] : newCards.slice(0, remainingNew);
-
-  if (dueCards.length === 0 && todayNew.length === 0) {
-    showToast('Keine Karten fällig – komm später wieder!', 'success');
-    state.sessionActive = false;
-    render();
-    return;
+    if (cards.length === 0) {
+      showToast('Keine Karten fällig – komm später wieder!', 'success');
+      state.sessionActive = false;
+      render();
+      return;
+    }
   }
 
-  // Erstelle Session in DB
   const { data: sess, error: sessError } = await sb.from('learning_sessions')
     .insert({ student_id: state.user.id })
     .select().single();
@@ -369,18 +385,20 @@ async function startSession(reviewOnly = false) {
 
   state.session = {
     id: sess?.id || null,
-    activeQueue: [...dueCards, ...todayNew],
+    mode,
+    activeQueue: cards,
     pendingQueue: [],
     reviewed: 0,
     correct: 0,
     wrong: 0,
-    total: dueCards.length + todayNew.length,
+    total: cards.length,
+    allVocab: vocab,
     newToday: newTodayCount,
     remainingNew
   };
-  shuffle(state.session.activeQueue);
 
   state.currentCard = state.session.activeQueue.shift() || null;
+  state.exState = initExState(state.currentCard);
   render();
 }
 
@@ -478,6 +496,7 @@ async function rateCard(rating) {
   }
 
   state.showBack = false;
+  state.exState = initExState(state.currentCard);
   render();
 }
 
@@ -900,7 +919,7 @@ function buildLearnView() {
         <p style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:12px">Lernmodus wählen</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
 
-          <button id="btn-new-vocab" onclick="startSession(false)" style="
+          <button id="btn-new-vocab" onclick="startSession('new')" style="
             background:var(--accent);color:#fff;border:none;border-radius:18px;
             padding:28px 18px 24px;cursor:pointer;text-align:center;position:relative;overflow:hidden;
             box-shadow:0 8px 28px rgba(79,110,247,0.35);
@@ -915,14 +934,14 @@ function buildLearnView() {
                 <rect x="14" y="14" width="12" height="9" rx="1.5" stroke="#fff" stroke-width="1.8" fill="none" opacity="0.6"/>
               </svg>
             </div>
-            <div style="font-size:16px;font-weight:800;margin-bottom:4px">Lernen</div>
-            <div style="font-size:11px;opacity:0.8;font-weight:600;margin-bottom:14px;line-height:1.5">${newAvailable > 0 ? `+${newAvailable} neue` : 'Nur Wiederholungen'}</div>
+            <div style="font-size:16px;font-weight:800;margin-bottom:4px">Neue Wörter</div>
+            <div style="font-size:11px;opacity:0.8;font-weight:600;margin-bottom:14px;line-height:1.5">Heute ${newAvailable > 0 ? `+${newAvailable} neue` : 'keine neuen mehr'}</div>
             <div style="background:rgba(255,255,255,0.18);border-radius:20px;padding:6px 12px;display:inline-block;font-size:13px;font-weight:800">
-              ${typeof dueCount === 'number' && typeof newAvailable === 'number' ? dueCount + newAvailable : '…'} Karten
+              ${newAvailable} Karten
             </div>
           </button>
 
-          <button id="btn-review" onclick="startSession(true)" style="
+          <button id="btn-review" onclick="startSession('review')" style="
             background:var(--surface);color:var(--text);
             border:2px solid var(--border);border-radius:18px;
             padding:28px 18px 24px;cursor:pointer;text-align:center;position:relative;overflow:hidden;
@@ -940,7 +959,7 @@ function buildLearnView() {
               </svg>
             </div>
             <div style="font-size:16px;font-weight:800;margin-bottom:4px;color:var(--text)">Wiederholen</div>
-            <div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:14px;line-height:1.5">Nur bekannte Karten</div>
+            <div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:14px;line-height:1.5">Gelernte Wörter üben</div>
             <div style="background:var(--accent-light);border-radius:20px;padding:6px 12px;display:inline-block;font-size:13px;font-weight:800;color:var(--accent)">
               ${dueCount} Karten
             </div>
@@ -977,49 +996,51 @@ function buildLearnView() {
           <div class="stat-card"><div class="stat-big">${accuracy}%</div><div class="stat-label">Trefferquote</div></div>
         </div>
         <div class="flex gap-3 items-center" style="justify-content:center;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="startSession(false)">Nochmal lernen</button>
+          <button class="btn btn-primary" onclick="startSession('${s.mode || 'review'}')">Nochmal lernen</button>
         </div>
       </div>`;
   }
 
   const card = state.currentCard;
   const vocab = card?.vocab;
+  const progressPct = Math.round((s.reviewed / Math.max(s.total, 1)) * 100);
+
+  // Session header (shared across all exercise types)
+  const sessionHeader = `
+    <div style="width:100%;max-width:560px">
+      <div class="flex justify-between items-center mb-4">
+        <span class="text-sm text-muted">${s.reviewed}/${s.total} · ${s.correct} ✓ ${s.wrong} ✗</span>
+        <div class="direction-toggle">
+          <button class="toggle-btn ${state.direction === 'de_en' ? 'active' : ''}" onclick="setDirection('de_en')">DE→EN</button>
+          <button class="toggle-btn ${state.direction === 'en_de' ? 'active' : ''}" onclick="setDirection('en_de')">EN→DE</button>
+        </div>
+      </div>
+      <div class="progress-bar-outer">
+        <div class="progress-bar-inner" style="width:${progressPct}%"></div>
+      </div>
+    </div>`;
+
+  // Route to exercise type
+  const exerciseType = card?.exerciseType || 'flashcard';
+  if (exerciseType !== 'flashcard') {
+    return `<div class="flashcard-wrapper">${sessionHeader}${buildVocabExercise(card, state.exState)}</div>`;
+  }
+
+  // Default: flashcard
   const front = state.direction === 'de_en' ? vocab?.german : vocab?.english;
   const back = state.direction === 'de_en' ? vocab?.english : vocab?.german;
-  const progress = s.reviewed / Math.max(s.total, 1);
 
   return `
     <div class="flashcard-wrapper">
-      <div style="width:100%;max-width:560px">
-        <div class="flex justify-between items-center mb-4">
-          <div class="flex gap-2 items-center">
-            <span class="text-sm text-muted">${s.total} Karten · ${s.remainingNew > 0 ? `${s.remainingNew} neue heute` : 'keine neuen mehr heute'}</span>
-          </div>
-          <div class="direction-toggle">
-            <button class="toggle-btn ${state.direction === 'de_en' ? 'active' : ''}" onclick="setDirection('de_en')">DE→EN</button>
-            <button class="toggle-btn ${state.direction === 'en_de' ? 'active' : ''}" onclick="setDirection('en_de')">EN→DE</button>
-          </div>
-        </div>
-        <div class="progress-bar-outer">
-          <div class="progress-bar-inner" style="width:${Math.round(progress * 100)}%"></div>
-        </div>
-        <div class="session-stats">
-          <div class="session-stat"><div class="stat-dot" style="background:var(--green)"></div>${s.correct} richtig</div>
-          <div class="session-stat"><div class="stat-dot" style="background:var(--red)"></div>${s.wrong} falsch</div>
-          <div class="session-stat text-muted">${s.reviewed}/${s.total}</div>
-        </div>
-      </div>
-
+      ${sessionHeader}
       <div class="flashcard ${state.showBack ? 'flipped' : ''}" onclick="${state.showBack ? '' : 'flipCard()'}">
         <div class="flashcard-inner">
           <div class="flashcard-front">
-            <span class="card-level-badge">${s.level}</span>
             <span class="card-direction-badge">${state.direction === 'de_en' ? '🇩🇪 → 🇬🇧' : '🇬🇧 → 🇩🇪'}</span>
             <div class="card-word">${front}</div>
             <div class="card-hint">Klicke um die Antwort zu sehen</div>
           </div>
           <div class="flashcard-back">
-            <span class="card-level-badge">${s.level}</span>
             <div class="card-translation">${back}</div>
             <div class="card-hint" style="margin-top:12px">Wie gut wusstest du es?</div>
           </div>
@@ -1117,6 +1138,25 @@ function buildVocabAdmin() {
   return `
     <h1 class="section-title">Vokabeln</h1>
     <p class="section-sub">Importiere Vokabellisten als CSV-Datei</p>
+
+    <div class="card mb-6">
+      <h3 style="margin-bottom:8px">Beispielsätze generieren</h3>
+      <p class="text-sm text-muted" style="margin-bottom:16px">Generiert für jede Vokabel ohne Beispielsatz einen kurzen deutschen Satz mit Claude AI. Wird einmalig ausgeführt und dauert je nach Anzahl einige Minuten.</p>
+      ${state.sentenceGenProgress ? `
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span class="text-sm">${state.sentenceGenProgress.status}</span>
+            <span class="text-sm font-bold">${state.sentenceGenProgress.done} / ${state.sentenceGenProgress.total}</span>
+          </div>
+          <div style="height:6px;background:var(--surface2);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${state.sentenceGenProgress.total > 0 ? Math.round((state.sentenceGenProgress.done / state.sentenceGenProgress.total) * 100) : 0}%;background:var(--accent);border-radius:4px;transition:width 0.3s"></div>
+          </div>
+        </div>
+        ${state.sentenceGenProgress.done >= state.sentenceGenProgress.total ? `<span class="chip green">✓ Fertig</span>` : `<span class="text-sm text-muted">Läuft…</span>`}
+      ` : `
+        <button class="btn btn-primary btn-sm" onclick="generateAllSentences()">✨ Sätze generieren</button>
+      `}
+    </div>
 
     <div class="card mb-6">
       <h3 style="margin-bottom:12px">CSV importieren</h3>
@@ -1404,6 +1444,53 @@ window.openChapterVocab = async (level, chapter) => {
   const { data } = await sb.from('vocabulary').select('german, english').eq('level', level).eq('chapter', chapter).order('german');
   state.viewingVocab = { level, chapter, items: data || [] };
   render();
+};
+
+window.generateAllSentences = async () => {
+  // Load all vocab without a sentence
+  const { data: allVocab, error } = await sb.from('vocabulary')
+    .select('id, german, english')
+    .is('example_sentence', null);
+
+  if (error) { showToast('Fehler beim Laden: ' + error.message, 'error'); return; }
+  if (!allVocab || allVocab.length === 0) {
+    showToast('Alle Vokabeln haben bereits einen Beispielsatz!', 'success');
+    return;
+  }
+
+  const BATCH = 30;
+  state.sentenceGenProgress = { done: 0, total: allVocab.length, status: 'Generiere Sätze…' };
+  render();
+
+  for (let i = 0; i < allVocab.length; i += BATCH) {
+    const batch = allVocab.slice(i, i + BATCH);
+    try {
+      const { data, error: fnError } = await sb.functions.invoke('generate-vocab-sentences', {
+        body: { vocab: batch }
+      });
+      if (fnError) throw fnError;
+
+      const sentences = data?.sentences || [];
+      if (sentences.length > 0) {
+        // Upsert each sentence back into vocabulary table
+        for (const { id, sentence } of sentences) {
+          await sb.from('vocabulary').update({ example_sentence: sentence }).eq('id', id);
+        }
+      }
+    } catch (e) {
+      console.error('Batch error:', e);
+      state.sentenceGenProgress.status = `Fehler bei Batch ${Math.floor(i / BATCH) + 1} — fahre fort…`;
+    }
+
+    state.sentenceGenProgress.done = Math.min(i + BATCH, allVocab.length);
+    state.sentenceGenProgress.status = state.sentenceGenProgress.done >= allVocab.length
+      ? 'Fertig!'
+      : `Generiere Sätze… (${state.sentenceGenProgress.done} von ${allVocab.length})`;
+    render();
+
+    // Small delay between batches to avoid rate limiting
+    if (i + BATCH < allVocab.length) await new Promise(r => setTimeout(r, 500));
+  }
 };
 
 window.closeVocabModal = (event) => {

@@ -659,6 +659,68 @@
   /* Drag over highlight */
   .gap-slot.drag-over { border-color: #7c3aed; background: rgba(124,58,237,0.12); }
 
+  /* Vocab exercise card */
+  .ex-card {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 24px 24px;
+    box-shadow: 0 4px 20px rgba(26,29,53,0.07);
+  }
+
+  /* Multiple choice options */
+  .mc-option {
+    padding: 14px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'Nunito', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    text-align: center;
+  }
+  .mc-option:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .mc-option:disabled { cursor: default; }
+
+  /* Letter chips */
+  .letter-chip {
+    min-width: 36px;
+    height: 42px;
+    padding: 0 10px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'Nunito', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .letter-chip:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .letter-chip.placed {
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .letter-chip:disabled { cursor: default; }
+
   /* Responsive */
   @media(max-width: 700px) {
     .login-wrap { flex-direction: column; gap: 32px; }
