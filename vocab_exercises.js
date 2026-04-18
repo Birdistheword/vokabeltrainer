@@ -41,18 +41,23 @@ function initExState(card) {
       };
     }
     case 'letter_unscramble': {
-      const letters = target.split('');
-      const remaining = [...letters];
+      // Strip article prefix so user only scrambles the actual word
+      const articleMatch = target.match(/^(der |die |das )/i);
+      const articlePrefix = articleMatch ? articleMatch[1] : '';
+      const wordPart = articlePrefix ? target.slice(articlePrefix.length) : target;
+      const remaining = wordPart.split('');
       shuffle(remaining);
-      // Make sure scrambled is different from the answer
+      // Make sure scrambled is different from the word
       let attempts = 0;
-      while (remaining.join('') === target && attempts < 10) {
+      while (remaining.join('') === wordPart && remaining.length > 1 && attempts < 10) {
         shuffle(remaining);
         attempts++;
       }
       return {
         arranged: [],
         remaining,
+        articlePrefix,
+        wordPart,
         target,
         checked: false,
         correct: false,
@@ -217,8 +222,11 @@ function buildLetterUnscramble(card, exState) {
     <div style="min-height:52px;border:2px dashed ${exState.checked ? (exState.correct ? 'var(--green)' : 'var(--red)') : 'var(--border)'};
       border-radius:12px;padding:8px 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
       background:${exState.checked ? (exState.correct ? 'rgba(34,192,107,0.06)' : 'rgba(240,74,90,0.04)') : 'var(--surface2)'};
-      margin-bottom:12px;cursor:${exState.checked ? 'default' : 'default'}">
-      ${exState.arranged.length === 0
+      margin-bottom:12px">
+      ${exState.articlePrefix
+        ? `<span style="font-size:18px;font-weight:800;color:var(--text2);margin-right:2px">${exState.articlePrefix}</span>`
+        : ''}
+      ${exState.arranged.length === 0 && !exState.articlePrefix
         ? `<span style="color:var(--text3);font-size:13px">Buchstaben hier einordnen…</span>`
         : exState.arranged.map((l, i) => `
           <button class="letter-chip placed"
@@ -375,7 +383,7 @@ window.exLetterClear = () => {
 window.exLetterCheck = () => {
   const exState = state.exState;
   if (!exState || exState.checked || exState.arranged.length === 0) return;
-  const answer = exState.arranged.join('');
+  const answer = (exState.articlePrefix || '') + exState.arranged.join('');
   exState.correct = answer.toLowerCase() === exState.target.toLowerCase();
   exState.checked = true;
   render();
