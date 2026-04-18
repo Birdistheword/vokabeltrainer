@@ -1009,7 +1009,10 @@ function buildLearnView() {
   const sessionHeader = `
     <div style="width:100%;max-width:560px">
       <div class="flex justify-between items-center mb-4">
-        <span class="text-sm text-muted">${s.reviewed}/${s.total} · ${s.correct} ✓ ${s.wrong} ✗</span>
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="btn btn-ghost btn-sm" onclick="exitSession()">← Zurück</button>
+          <span class="text-sm text-muted">${s.reviewed}/${s.total} · ${s.correct} ✓ ${s.wrong} ✗</span>
+        </div>
         <div class="direction-toggle">
           <button class="toggle-btn ${state.direction === 'de_en' ? 'active' : ''}" onclick="setDirection('de_en')">DE→EN</button>
           <button class="toggle-btn ${state.direction === 'en_de' ? 'active' : ''}" onclick="setDirection('en_de')">EN→DE</button>
@@ -1092,6 +1095,7 @@ function buildStudentsAdmin() {
             <div class="student-actions">
               <button class="btn btn-ghost btn-sm" onclick="openChapterModal('${s.id}')">Kapitel verwalten</button>
               <button class="btn btn-ghost btn-sm" onclick="openStats('${s.id}')">Statistiken</button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--orange);border-color:var(--orange)" onclick="resetSrsNow('${s.id}')" title="Alle Vokabeln sofort fällig setzen">⟳ Sofort fällig</button>
             </div>
           </div>
         `).join('')
@@ -1411,6 +1415,23 @@ window.flipCard = () => { state.showBack = true; render(); };
 window.rateCard = rateCard;
 window.setDirection = (d) => { state.direction = d; render(); };
 window.startSession = startSession;
+window.exitSession = async () => {
+  state.sessionActive = false;
+  state.currentCard = null;
+  state.session = null;
+  state.exState = null;
+  state.showBack = false;
+  state.waitingUntil = null;
+  await loadDashboard();
+  render();
+};
+window.resetSrsNow = async (studentId) => {
+  const { error } = await sb.from('srs_progress')
+    .update({ next_review: new Date().toISOString() })
+    .eq('student_id', studentId);
+  if (error) { showToast('Fehler: ' + error.message, 'error'); return; }
+  showToast('Alle Vokabeln sind jetzt sofort fällig.', 'success');
+};
 window.selectLevel = (l) => { state.selectedLevel = l; render(); };
 
 window.switchModule = async (moduleId) => {
