@@ -569,9 +569,29 @@ async function loadStats(studentId) {
     sb.from('srs_progress').select('vocabulary_id, next_review, interval_minutes, ease, review_count').eq('student_id', studentId)
   ]);
 
-  const sessionData = sessions.data || [];
+  const rawSessions = (sessions.data || []).slice().sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
   const reviewData = reviews.data || [];
   const progressData = progress.data || [];
+
+  // Merge sessions that start within 60 min of the previous one ending/starting
+  const sessionData = [];
+  for (const sess of rawSessions) {
+    const prev = sessionData[sessionData.length - 1];
+    const prevEnd = prev ? new Date(prev._lastEnd || prev.started_at) : null;
+    const gap = prev ? (new Date(sess.started_at) - prevEnd) : Infinity;
+    if (prev && gap <= 60 * 60 * 1000) {
+      // Merge into previous group
+      prev.cards_reviewed = (prev.cards_reviewed || 0) + (sess.cards_reviewed || 0);
+      prev.correct_count  = (prev.correct_count  || 0) + (sess.correct_count  || 0);
+      prev.wrong_count    = (prev.wrong_count    || 0) + (sess.wrong_count    || 0);
+      prev.ended_at = sess.ended_at || prev.ended_at;
+      prev._lastEnd = sess.ended_at || sess.started_at;
+    } else {
+      sessionData.push({ ...sess, _lastEnd: sess.ended_at || sess.started_at });
+    }
+  }
+  // Sort descending for display
+  sessionData.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
 
   // Build per-vocab aggregation (iterate chronologically = oldest first → history is oldest→newest)
   const vocabMap = {};
@@ -1416,6 +1436,21 @@ window.rateCard = rateCard;
 window.setDirection = (d) => { state.direction = d; render(); };
 window.startSession = startSession;
 window.exitSession = async () => {
+  const s = state.session;
+  if (s?.id) {
+    if (s.reviewed > 0) {
+      // Save whatever was completed before exit
+      await sb.from('learning_sessions').update({
+        ended_at: new Date().toISOString(),
+        cards_reviewed: s.reviewed,
+        correct_count: s.correct,
+        wrong_count: s.wrong
+      }).eq('id', s.id);
+    } else {
+      // Zero-card session (user exited immediately) — delete it
+      await sb.from('learning_sessions').delete().eq('id', s.id);
+    }
+  }
   state.sessionActive = false;
   state.currentCard = null;
   state.session = null;
