@@ -47,6 +47,7 @@ let state = {
   lessonStudent: null,
   activeLesson: null,
   lessonNotifications: [],
+  lessonSidebar: null,
   blueprints: [],
   blueprintPickerOpen: false,
   // Homework
@@ -787,7 +788,8 @@ function buildApp() {
     </div>`;
 
   const content = isAdmin ? buildAdmin() : buildStudent();
-  return `${topbar}${moduleBar}<div class="main">${content}</div>`;
+  const sidebar = state.lessonSidebar ? buildLessonSidebar() : '';
+  return `${topbar}${moduleBar}<div class="main">${content}</div>${sidebar}`;
 }
 
 function buildLogin() {

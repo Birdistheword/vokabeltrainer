@@ -276,7 +276,10 @@ function buildAttachArea(section, type, isAdmin) {
 
   const recapChips = recapRefs.map((ref, i) => `
     <div class="recap-ref-chip">
-      📌 <span>${escHtml(ref.date)} — ${escHtml(ref.title)}</span>
+      <button class="recap-ref-open" data-lid="${ref.lesson_id}"
+        onclick="window.openLessonSidebar(this.dataset.lid)">
+        📌 ${escHtml(ref.date)} — ${escHtml(ref.title)}
+      </button>
       ${isAdmin ? `<button class="attachment-remove" data-sid="${sectionId}" data-idx="${i}"
         onclick="window.removeRecapRef(this.dataset.sid, parseInt(this.dataset.idx))">×</button>` : ''}
     </div>`).join('');
@@ -393,6 +396,7 @@ window.openLesson = async (lessonId) => {
 
 window.closeLesson = () => {
   state.activeLesson = null;
+  state.lessonSidebar = null;
   render();
 };
 
@@ -662,6 +666,56 @@ window.deleteBlueprint = async (bpId) => {
   if (!confirm('Vorlage löschen?')) return;
   await sb.from('blueprints').delete().eq('id', bpId);
   state.blueprints = state.blueprints.filter(bp => bp.id !== bpId);
+  render();
+};
+
+// ========== LESSON SIDEBAR ==========
+
+function buildLessonSidebar() {
+  const lesson = state.lessonSidebar;
+  const d = lesson.date ? new Date(lesson.date + 'T12:00:00') : null;
+  const dateStr = d ? d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  const title = lesson.title || `Stunde vom ${dateStr}`;
+
+  const sectionsHtml = SECTION_ORDER.map(type => {
+    const meta = SECTION_META[type];
+    const sec = (lesson.sections || []).find(s => s.section_type === type);
+    if (!sec?.content) return '';
+    return `
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span>${meta.icon}</span>
+          <span>${meta.label}</span>
+        </div>
+        <div class="sidebar-section-content">${escHtml(sec.content)}</div>
+      </div>`;
+  }).filter(Boolean).join('');
+
+  return `
+    <div class="lesson-sidebar-overlay" onclick="window.closeLessonSidebar()"></div>
+    <div class="lesson-sidebar">
+      <div class="lesson-sidebar-header">
+        <div>
+          <div class="lesson-sidebar-date">${dateStr}</div>
+          <div class="lesson-sidebar-title">${escHtml(title)}</div>
+        </div>
+        <button class="lesson-sidebar-close" onclick="window.closeLessonSidebar()">✕</button>
+      </div>
+      <div class="lesson-sidebar-body">
+        ${sectionsHtml || '<div style="padding:24px;color:var(--text3);text-align:center">Keine Inhalte</div>'}
+      </div>
+    </div>`;
+}
+
+window.openLessonSidebar = async (lessonId) => {
+  const { data: lessonRes } = await sb.from('lessons').select('*').eq('id', lessonId).single();
+  const { data: sections } = await sb.from('lesson_sections').select('*').eq('lesson_id', lessonId).order('sort_order');
+  state.lessonSidebar = { ...lessonRes, sections: sections || [] };
+  render();
+};
+
+window.closeLessonSidebar = () => {
+  state.lessonSidebar = null;
   render();
 };
 
