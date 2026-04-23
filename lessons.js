@@ -532,24 +532,30 @@ window.addPersonalVocab = async () => {
 };
 
 async function _generatePvSentence(pvId, german, english) {
-  try {
-    const { data, error } = await sb.functions.invoke('generate-vocab-sentences', {
-      body: { vocab: [{ id: pvId, german, english }] }
-    });
-    if (error || !data?.sentences?.length) return;
-    const sentence = data.sentences[0]?.sentence;
-    if (!sentence) return;
-    await sb.from('personal_vocab').update({ example_sentence: sentence }).eq('id', pvId);
-    const item = state.activeLesson?.personalVocab?.find(v => v.id === pvId);
-    if (item) {
-      item.example_sentence = sentence;
-      const rowEl = document.getElementById('pv-row-' + pvId);
-      if (rowEl) {
-        const sentEl = rowEl.querySelector('.pv-sentence');
-        if (sentEl) { sentEl.textContent = sentence; sentEl.classList.remove('pv-sentence-loading'); }
-      }
+  const { data, error } = await sb.functions.invoke('generate-vocab-sentences', {
+    body: { vocab: [{ id: pvId, german, english }] }
+  });
+  if (error) {
+    console.error('Sentence gen error:', error);
+    const rowEl = document.getElementById('pv-row-' + pvId);
+    if (rowEl) {
+      const sentEl = rowEl.querySelector('.pv-sentence');
+      if (sentEl) { sentEl.textContent = '—'; sentEl.classList.remove('pv-sentence-loading'); }
     }
-  } catch (_) {}
+    return;
+  }
+  const sentence = data?.sentences?.[0]?.sentence;
+  if (!sentence) return;
+  await sb.from('personal_vocab').update({ example_sentence: sentence }).eq('id', pvId);
+  const item = state.activeLesson?.personalVocab?.find(v => v.id === pvId);
+  if (item) {
+    item.example_sentence = sentence;
+    const rowEl = document.getElementById('pv-row-' + pvId);
+    if (rowEl) {
+      const sentEl = rowEl.querySelector('.pv-sentence');
+      if (sentEl) { sentEl.textContent = sentence; sentEl.classList.remove('pv-sentence-loading'); }
+    }
+  }
 }
 
 window.removePersonalVocab = async (pvId) => {
