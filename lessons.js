@@ -437,10 +437,7 @@ function buildPersonalVocabPanel() {
 
   const rows = pv.map(v => {
     const inSrs = !!v.srs;
-    const srsBtn = inSrs
-      ? `<span class="pv-srs-badge">✓ Im SRS</span>`
-      : `<button class="btn btn-ghost btn-xs" data-pvid="${v.id}"
-           onclick="window.addVocabToSrs(this.dataset.pvid)">+ SRS</button>`;
+    const srsIndicator = inSrs ? `<span class="pv-srs-badge">✓ SRS</span>` : '';
     const sentenceHtml = v.example_sentence
       ? `<div class="pv-sentence">${escHtml(v.example_sentence)}</div>`
       : `<div class="pv-sentence pv-sentence-loading">Satz wird generiert…</div>`;
@@ -450,10 +447,10 @@ function buildPersonalVocabPanel() {
           <span class="pv-german">${escHtml(v.german)}</span>
           <span class="pv-sep">·</span>
           <span class="pv-english">${escHtml(v.english || '—')}</span>
+          ${srsIndicator}
         </div>
         ${sentenceHtml}
         <div class="pv-actions">
-          ${srsBtn}
           <button class="btn btn-ghost btn-xs" data-pvid="${v.id}"
             onclick="window.removePersonalVocab(this.dataset.pvid)">×</button>
         </div>
@@ -466,6 +463,7 @@ function buildPersonalVocabPanel() {
         <span class="pv-header-icon">📝</span>
         <span class="pv-header-label">Eigene Wörter dieser Stunde</span>
         <span class="pv-count">${pv.length}</span>
+        ${pv.length > 0 ? `<button class="btn btn-success btn-xs" onclick="window.addAllVocabToSrs()">Alle Wörter hinzufügen</button>` : ''}
       </div>
       <div class="pv-list">${rows}</div>
       <div class="pv-add-form">
@@ -667,27 +665,29 @@ window.deleteBlueprint = async (bpId) => {
   render();
 };
 
-window.addVocabToSrs = async (pvId) => {
+window.addAllVocabToSrs = async () => {
   const lesson = state.activeLesson;
   if (!lesson) return;
-  const { data: existing } = await sb.from('srs_progress')
-    .select('id').eq('student_id', lesson.student_id).eq('personal_vocab_id', pvId).maybeSingle();
-  if (existing) { showToast('Bereits im SRS', 'error'); return; }
+  const pending = (lesson.personalVocab || []).filter(v => !v.srs);
+  if (!pending.length) { showToast('Alle Wörter sind bereits im SRS', 'error'); return; }
+
   const now = new Date().toISOString();
-  const { error } = await sb.from('srs_progress').insert({
+  const rows = pending.map(v => ({
     student_id: lesson.student_id,
-    personal_vocab_id: pvId,
+    personal_vocab_id: v.id,
     next_review: now,
     interval_minutes: 1,
     ease: 1,
     review_count: 0,
     first_seen_at: now,
     last_seen_at: now,
-  });
+  }));
+  const { error } = await sb.from('srs_progress').insert(rows);
   if (error) { showToast('Fehler: ' + error.message, 'error'); return; }
-  const item = lesson.personalVocab?.find(v => v.id === pvId);
-  if (item) item.srs = { next_review: now, ease: 1, review_count: 0 };
-  showToast('Zum SRS hinzugefügt!', 'success');
+
+  const srsEntry = { next_review: now, ease: 1, review_count: 0 };
+  pending.forEach(v => { v.srs = srsEntry; });
+  showToast(`${pending.length} Wörter ins SRS hinzugefügt!`, 'success');
   refreshPvPanel();
 };
 
