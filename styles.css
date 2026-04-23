@@ -906,6 +906,19 @@
   }
   .recap-option:hover { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
 
+  /* LESSON DETAIL HEADER */
+  .session-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 0 16px;
+    margin-bottom: 8px;
+    border-bottom: 1.5px solid var(--border);
+  }
+  .session-header-label {
+    font-size: 14px; font-weight: 700; color: var(--text2);
+    flex: 1; text-align: center;
+  }
+
   /* LESSON SIDEBAR */
   .lesson-sidebar-overlay {
     position: fixed; inset: 0;
