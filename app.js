@@ -41,7 +41,14 @@ let state = {
   statsStudent: null,
   statsData: null,
   // Module system
-  activeModule: 'vocab',  // vocab | homework
+  activeModule: 'vocab',  // vocab | homework | lessons
+  // Lessons
+  lessonsData: [],
+  lessonStudent: null,
+  activeLesson: null,
+  lessonNotifications: [],
+  blueprints: [],
+  blueprintPickerOpen: false,
   // Homework
   hwAssignments: [],
   hwActive: null,
@@ -56,6 +63,8 @@ let state = {
   hwSubmissions: {},
   // Sentence generation
   sentenceGenProgress: null, // { done, total, status }
+  // Personal vocab (student view)
+  personalVocab: [],
   // Exercise state (per-card, reset on each new card)
   exState: null,
 };
@@ -218,11 +227,31 @@ async function loadStudentChapters() {
 
 // ========== STUDENT: VOCAB LIST ==========
 async function loadLearnedVocab() {
-  const { data } = await sb.from('srs_progress')
-    .select('*, vocabulary(german, english, level, chapter)')
-    .eq('student_id', state.user.id)
-    .order('ease', { ascending: true });
-  state.learnedVocab = (data || []).filter(p => p.vocabulary);
+  const [regularRes, personalRes] = await Promise.all([
+    sb.from('srs_progress')
+      .select('*, vocabulary(german, english, level, chapter)')
+      .eq('student_id', state.user.id)
+      .order('ease', { ascending: true }),
+    sb.from('personal_vocab')
+      .select('*')
+      .eq('student_id', state.user.id)
+      .order('created_at', { ascending: false }),
+  ]);
+  state.learnedVocab = (regularRes.data || []).filter(p => p.vocabulary);
+
+  const pvData = personalRes.data || [];
+  if (pvData.length) {
+    const pvIds = pvData.map(v => v.id);
+    const { data: srsData } = await sb.from('srs_progress')
+      .select('personal_vocab_id, next_review, ease, review_count')
+      .eq('student_id', state.user.id)
+      .in('personal_vocab_id', pvIds);
+    const srsMap = {};
+    (srsData || []).forEach(s => { srsMap[s.personal_vocab_id] = s; });
+    state.personalVocab = pvData.map(v => ({ ...v, srs: srsMap[v.id] || null }));
+  } else {
+    state.personalVocab = [];
+  }
 }
 
 // ========== STUDENT: PROGRESS ==========
@@ -288,7 +317,11 @@ async function loadDashboard() {
     const remainingNew = Math.max(0, NEW_PER_DAY - newTodayCount);
     const newAvailable = Math.min(remainingNew, vocab.filter(v => !progressSet.has(v.id)).length);
 
-    state.dashboard = { dueCount, newAvailable, totalLearned: progressSet.size };
+    const { data: pvSrs } = await sb.from('srs_progress')
+      .select('next_review').eq('student_id', state.user.id).not('personal_vocab_id', 'is', null);
+    const personalDue = (pvSrs || []).filter(p => new Date(p.next_review) <= Date.now() + 15 * 60 * 1000).length;
+
+    state.dashboard = { dueCount, newAvailable, totalLearned: progressSet.size, personalDue };
   } catch (e) {
     console.error('loadDashboard error:', e);
     state.dashboard = { dueCount: 0, newAvailable: 0, totalLearned: 0 };
@@ -402,6 +435,55 @@ async function startSession(mode) {
   render();
 }
 
+async function startPersonalSession() {
+  state.studentTab = 'learn';
+  state.sessionActive = true;
+  state.showBack = false;
+  state.waitingUntil = null;
+  state.exState = null;
+
+  const { data: pvData } = await sb.from('personal_vocab').select('*').eq('student_id', state.user.id);
+  if (!pvData?.length) {
+    showToast('Noch keine eigenen Wörter vorhanden.', 'error');
+    state.sessionActive = false; render(); return;
+  }
+  const pvIds = pvData.map(v => v.id);
+  const { data: progress } = await sb.from('srs_progress')
+    .select('*').eq('student_id', state.user.id).in('personal_vocab_id', pvIds);
+
+  const srsMap = {};
+  (progress || []).forEach(p => { srsMap[p.personal_vocab_id] = p; });
+
+  const dueCards = pvData
+    .filter(v => {
+      const p = srsMap[v.id];
+      return p && new Date(p.next_review) <= Date.now() + 15 * 60 * 1000;
+    })
+    .map(v => ({ vocab: v, progress: srsMap[v.id], exerciseType: 'flashcard', isPersonal: true }));
+
+  shuffle(dueCards);
+  if (dueCards.length === 0) {
+    showToast('Keine eigenen Wörter fällig!', 'success');
+    state.sessionActive = false; render(); return;
+  }
+
+  const { data: sess } = await sb.from('learning_sessions')
+    .insert({ student_id: state.user.id }).select().single();
+
+  state.session = {
+    id: sess?.id || null,
+    mode: 'personal',
+    activeQueue: dueCards,
+    pendingQueue: [],
+    reviewed: 0, correct: 0, wrong: 0,
+    total: dueCards.length,
+    allVocab: pvData,
+  };
+  state.currentCard = state.session.activeQueue.shift();
+  state.exState = initExState(state.currentCard);
+  render();
+}
+
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -416,37 +498,52 @@ async function rateCard(rating) {
   const nextReview = minutesFromNow(intervalMin);
   const vocabId = card.vocab.id;
 
-  // Fortschritt speichern (UPSERT — funktioniert für neue und bekannte Karten)
-  const updatedProgress = {
-    student_id: state.user.id,
-    vocabulary_id: vocabId,
-    next_review: nextReview.toISOString(),
-    interval_minutes: intervalMin,
-    ease: rating,
-    review_count: (card.progress?.review_count || 0) + 1,
-    first_seen_at: card.progress?.first_seen_at || new Date().toISOString(),
-    last_seen_at: new Date().toISOString()
-  };
-
-  const { error: srsError } = await sb.from('srs_progress')
-    .upsert(updatedProgress, { onConflict: 'student_id,vocabulary_id' });
+  // Fortschritt speichern
+  let srsError;
+  if (card.isPersonal) {
+    const updatedProgress = {
+      next_review: nextReview.toISOString(),
+      interval_minutes: intervalMin,
+      ease: rating,
+      review_count: (card.progress?.review_count || 0) + 1,
+      last_seen_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('srs_progress')
+      .update(updatedProgress)
+      .eq('student_id', state.user.id)
+      .eq('personal_vocab_id', card.vocab.id);
+    srsError = error;
+    if (!error) card.progress = { ...card.progress, ...updatedProgress };
+  } else {
+    const updatedProgress = {
+      student_id: state.user.id,
+      vocabulary_id: vocabId,
+      next_review: nextReview.toISOString(),
+      interval_minutes: intervalMin,
+      ease: rating,
+      review_count: (card.progress?.review_count || 0) + 1,
+      first_seen_at: card.progress?.first_seen_at || new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('srs_progress')
+      .upsert(updatedProgress, { onConflict: 'student_id,vocabulary_id' });
+    srsError = error;
+    if (!error) card.progress = updatedProgress;
+    if (!error) {
+      await sb.from('reviews').insert({
+        student_id: state.user.id,
+        vocabulary_id: vocabId,
+        session_id: state.session?.id || null,
+        rating,
+        direction: state.direction,
+      });
+    }
+  }
 
   if (srsError) {
     showToast('Fehler beim Speichern — bitte nochmal versuchen.', 'error');
-    return; // Karte NICHT weiterschalten, Schüler soll nochmal bewerten
+    return;
   }
-
-  // In-memory aktualisieren (wichtig für pendingQueue-Durchläufe)
-  card.progress = updatedProgress;
-
-  // Review loggen (best-effort, kein Block bei Fehler)
-  await sb.from('reviews').insert({
-    student_id: state.user.id,
-    vocabulary_id: vocabId,
-    session_id: state.session?.id || null,
-    rating,
-    direction: state.direction
-  });
 
   // Session-Statistik
   state.session.reviewed++;
@@ -635,6 +732,7 @@ async function loadStats(studentId) {
 const MODULES = [
   { id: 'vocab',    icon: '📚', label: 'Vokabeltrainer' },
   { id: 'homework', icon: '📝', label: 'Hausaufgaben' },
+  { id: 'lessons',  icon: '🗒️', label: 'Unterricht' },
 ];
 
 function buildApp() {
@@ -657,10 +755,19 @@ function buildApp() {
     }
   }
 
+  const bellBadge = isAdmin && state.lessonNotifications.length > 0
+    ? `<span class="topbar-bell-badge">${state.lessonNotifications.length}</span>` : '';
+  const bell = isAdmin ? `
+    <button class="topbar-bell ${state.lessonNotifications.length > 0 ? 'has-notifications' : ''}"
+      onclick="window.switchModule('lessons')" title="Benachrichtigungen">
+      🔔${bellBadge}
+    </button>` : '';
+
   const topbar = `
     <div class="topbar">
       <div class="topbar-logo">✦ <span>Lern</span>portal</div>
       <div class="topbar-right">
+        ${bell}
         <span class="text-sm text-muted">${state.profile?.full_name || state.profile?.email || ''}</span>
         <button class="btn btn-ghost btn-sm" onclick="logout()">Abmelden</button>
       </div>
@@ -746,6 +853,7 @@ function buildLogin() {
 
 function buildStudent() {
   if (state.activeModule === 'homework') return buildHomework();
+  if (state.activeModule === 'lessons') return buildLessons();
   if (state.studentTab === 'chapters') return buildProgressView();
   if (state.studentTab === 'vocab') return buildVocabList();
   return buildLearnView();
@@ -855,6 +963,7 @@ function buildProgressView() {
 
 function buildVocabList() {
   const vocab = state.learnedVocab || [];
+  const pv = state.personalVocab || [];
   const ratingLabel = { 1: '😕', 2: '😐', 3: '🙂', 4: '😄' };
   const ratingColor = { 1: 'red', 2: '', 3: 'blue', 4: 'green' };
 
@@ -866,9 +975,36 @@ function buildVocabList() {
     byChapter[key].push(p);
   });
 
+  const pvSection = pv.length === 0 ? '' : `
+    <div class="card mb-4" style="border-top:3px solid var(--green)">
+      <div class="flex items-center gap-2" style="margin-bottom:12px">
+        <strong>📝 Eigene Wörter</strong>
+        <span class="chip green">${pv.length} Wörter</span>
+      </div>
+      <table style="width:100%">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">Deutsch</th>
+          <th style="text-align:left;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">Englisch</th>
+          <th style="text-align:left;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">Beispielsatz</th>
+          <th style="text-align:center;padding:6px 4px;border-bottom:1.5px solid var(--border);font-size:12px">SRS</th>
+        </tr></thead>
+        <tbody>
+          ${pv.map(v => `<tr>
+            <td style="padding:6px 4px;border-bottom:1px solid var(--border);font-family:'Lora',serif;font-size:14px">${v.german}</td>
+            <td style="padding:6px 4px;border-bottom:1px solid var(--border);font-family:'Lora',serif;font-size:14px">${v.english || '—'}</td>
+            <td style="padding:6px 4px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text2);font-style:italic">${v.example_sentence || '—'}</td>
+            <td style="padding:6px 4px;border-bottom:1px solid var(--border);text-align:center">
+              ${v.srs ? `<span class="chip green">${ratingLabel[v.srs.ease] || '🆕'}</span>` : '<span class="chip">—</span>'}
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
   return `
     <h1 class="section-title">Meine Vokabeln</h1>
-    <p class="section-sub">${vocab.length} Vokabeln bisher gelernt</p>
+    <p class="section-sub">${vocab.length} Vokabeln gelernt · ${pv.length} eigene Wörter</p>
+    ${pvSection}
     ${vocab.length === 0 ? `
       <div class="card"><p class="text-muted text-sm">Noch keine Vokabeln gelernt. Starte eine Lernsession!</p></div>` :
       Object.entries(byChapter).sort().map(([chapter, items]) => `
@@ -986,6 +1122,23 @@ function buildLearnView() {
           </button>
 
         </div>
+
+        ${(d?.personalDue > 0) ? `
+        <div style="margin-top:14px">
+          <button onclick="startPersonalSession()" style="
+            width:100%;background:var(--green-light);color:var(--green);
+            border:2px solid var(--green);border-radius:14px;
+            padding:14px 18px;cursor:pointer;text-align:left;
+            display:flex;align-items:center;justify-content:space-between;
+            font-family:'Nunito',sans-serif;font-size:15px;font-weight:800;
+            transition:background 0.15s,transform 0.15s;
+          " onmouseover="this.style.background='var(--green)';this.style.color='#fff';this.style.transform='translateY(-2px)'"
+             onmouseout="this.style.background='var(--green-light)';this.style.color='var(--green)';this.style.transform=''">
+            <span>📝 Eigene Wörter üben</span>
+            <span style="background:var(--green);color:#fff;border-radius:20px;padding:4px 12px;font-size:13px">${d.personalDue} fällig</span>
+          </button>
+        </div>` : ''}
+
       </div>`;
   }
 
@@ -1086,6 +1239,7 @@ function buildLearnView() {
 
 function buildAdmin() {
   if (state.activeModule === 'homework') return buildHomework();
+  if (state.activeModule === 'lessons') return buildLessons();
   if (state.statsData) return buildStatsView();
   if (state.adminTab === 'vocab') return buildVocabAdmin();
   return buildStudentsAdmin();
@@ -1473,9 +1627,19 @@ window.switchModule = async (moduleId) => {
   state.activeModule = moduleId;
   state.statsData = null;
   state.hwActive = null;
+  state.activeLesson = null;
   if (moduleId === 'homework') {
     if (state.profile?.is_admin) await loadStudents();
     await loadHomework();
+  }
+  if (moduleId === 'lessons') {
+    if (state.profile?.is_admin) {
+      await loadStudents();
+      if (state.lessonStudent) await loadLessons();
+      await Promise.all([loadLessonNotifications(), loadBlueprints()]);
+    } else {
+      await loadLessons();
+    }
   }
   render();
 };
