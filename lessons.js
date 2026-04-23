@@ -212,6 +212,7 @@ function buildLessonDetail() {
   const blueprintBtns = isAdmin ? `
     <button class="btn btn-ghost btn-sm" onclick="window.saveLessonAsBlueprint()" title="Als Vorlage speichern">💾 Vorlage</button>
     ${state.blueprints.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="window.applyBlueprintToLesson()" title="Vorlage anwenden">📋 Anwenden</button>` : ''}
+    <button class="btn btn-danger btn-sm" onclick="window.deleteLesson()">Löschen</button>
   ` : '';
 
   return `
@@ -423,6 +424,24 @@ window.saveLessonDate = async (date) => {
     const d = new Date(date + 'T12:00:00');
     label.textContent = d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   }
+};
+
+window.deleteLesson = async () => {
+  const lesson = state.activeLesson;
+  if (!lesson) return;
+  if (!confirm('Stundenplan löschen? Das kann nicht rückgängig gemacht werden.')) return;
+
+  // Delete uploaded files from storage
+  const filePaths = lesson.sections.flatMap(s =>
+    (s.attachments || []).filter(a => a.type === 'file' && a.path).map(a => a.path)
+  );
+  if (filePaths.length) await sb.storage.from('lesson-files').remove(filePaths);
+
+  await sb.from('lessons').delete().eq('id', lesson.id);
+  state.activeLesson = null;
+  state.lessonSidebar = null;
+  state.lessonsData = state.lessonsData.filter(l => l.id !== lesson.id);
+  render();
 };
 
 window.toggleLessonStatus = async () => {
