@@ -304,24 +304,6 @@ function buildAttachArea(section, type, isAdmin) {
 
   if (!isAdmin || !sectionId) return chips;
 
-  const recapPicker = type === 'recap' ? `
-    <div class="recap-picker" id="recap-picker-${sectionId}" style="display:none">
-      <div class="recap-picker-title">Stunde verlinken:</div>
-      ${otherLessons.length === 0
-        ? `<div class="text-muted text-sm" style="padding:8px 12px">Keine anderen Stunden vorhanden</div>`
-        : otherLessons.map(l => {
-            const ld = l.date ? new Date(l.date + 'T12:00:00') : null;
-            const ldate = ld ? ld.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
-            const ltitle = l.title || `Stunde vom ${ldate}`;
-            return `<button class="recap-option"
-              data-sid="${sectionId}" data-lid="${l.id}"
-              data-ldate="${escHtml(ldate)}" data-ltitle="${escHtml(ltitle)}"
-              onclick="window.addRecapRef(this.dataset.sid,this.dataset.lid,this.dataset.ldate,this.dataset.ltitle)">
-              ${escHtml(ldate)} — ${escHtml(ltitle)}
-            </button>`;
-          }).join('')}
-    </div>` : '';
-
   const linkForm = `
     <div class="link-form" id="link-form-${sectionId}" style="display:none">
       <input class="link-form-input" id="link-url-${sectionId}" type="url" placeholder="URL (https://…)">
@@ -343,11 +325,10 @@ function buildAttachArea(section, type, isAdmin) {
       <input type="file" id="file-${sectionId}" style="display:none"
         data-sid="${sectionId}" data-lid="${lessonId}"
         onchange="window.uploadLessonFile(this.dataset.sid, this.dataset.lid, this)">
-      ${type === 'recap' ? `<button class="btn btn-ghost btn-xs" data-sid="${sectionId}"
-        onclick="window.toggleRecapPicker(this.dataset.sid)">📌 Vorherige Stunde</button>` : ''}
+      ${type === 'recap' ? `<button class="btn btn-ghost btn-xs"
+        onclick="window.openLessonSidebarList()">📌 Vorherige Stunden</button>` : ''}
     </div>
-    ${linkForm}
-    ${recapPicker}`;
+    ${linkForm}`;
 
   return chips + toolbar;
 }
@@ -942,22 +923,6 @@ async function _appendAttachment(sectionId, item) {
 
 // ========== ACTIONS — RECAP REFS ==========
 
-window.toggleRecapPicker = (sectionId) => {
-  const picker = document.getElementById('recap-picker-' + sectionId);
-  if (picker) picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
-};
-
-window.addRecapRef = async (sectionId, lessonId, date, title) => {
-  const sec = state.activeLesson?.sections.find(s => s.id === sectionId);
-  if (!sec) return;
-  if ((sec.recap_refs || []).some(r => r.lesson_id === lessonId)) {
-    showToast('Diese Stunde ist bereits verlinkt', 'error'); return;
-  }
-  const recap_refs = [...(sec.recap_refs || []), { lesson_id: lessonId, date, title }];
-  await sb.from('lesson_sections').update({ recap_refs }).eq('id', sectionId);
-  sec.recap_refs = recap_refs;
-  refreshAttachArea(sectionId);
-};
 
 window.removeRecapRef = async (sectionId, idx) => {
   const sec = state.activeLesson?.sections.find(s => s.id === sectionId);
