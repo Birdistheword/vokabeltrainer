@@ -85,7 +85,7 @@ function el(id) { return document.getElementById(id); }
 function isSuperAdmin() {
   if (state.profile?.is_superadmin) return true;
   const email = state.user?.email || state.user?.user_metadata?.email;
-  return email === 'riccardo@flow-heroes.com';
+  return email === 'riccardo.fuda@gmx.de';
 }
 function pwField(inputId, placeholder) {
   return `
