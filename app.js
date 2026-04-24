@@ -1688,7 +1688,8 @@ window.generateAllSentences = async () => {
     const batch = allVocab.slice(i, i + BATCH);
     try {
       const { data, error: fnError } = await sb.functions.invoke('generate-vocab-sentences', {
-        body: { vocab: batch }
+        body: { vocab: batch },
+        headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
       });
       if (fnError) throw fnError;
 
