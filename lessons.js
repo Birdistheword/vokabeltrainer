@@ -82,35 +82,35 @@ async function resolveSignedUrls(sections) {
 // ========== LIST VIEWS ==========
 
 function buildLessons() {
+  if (state.activeLesson && state.lessonViewMode) return buildLessonView();
   if (state.activeLesson) return buildLessonDetail();
   return state.profile?.is_admin ? buildLessonsTeacher() : buildLessonsStudent();
 }
 
 function buildLessonsTeacher() {
-  const studentOptions = state.students.map(s => {
+  const pills = state.students.map(s => {
+    const initials = (s.full_name || s.email || '?').slice(0, 2).toUpperCase();
     const name = s.full_name || s.email || s.id;
-    const selected = state.lessonStudent === s.id ? 'selected' : '';
-    return `<option value="${s.id}" ${selected}>${name}</option>`;
-  });
+    const active = state.lessonStudent === s.id ? 'active' : '';
+    return `
+      <button class="student-pill ${active}" onclick="window.selectLessonStudent('${s.id}')">
+        <span class="student-pill-avatar">${initials}</span>
+        <span class="student-pill-name">${escHtml(name)}</span>
+      </button>`;
+  }).join('');
 
-  const studentSelector = `
-    <div class="lessons-student-bar">
-      <select class="lessons-student-select" onchange="window.selectLessonStudent(this.value)">
-        <option value="">— Schüler wählen —</option>
-        ${studentOptions.join('')}
-      </select>
-      ${state.lessonStudent ? `
-        <button class="btn btn-primary btn-sm" onclick="window.newLesson()">+ Neue Stunde</button>
-        <button class="btn btn-ghost btn-sm" onclick="window.toggleBlueprintPicker()">📋 Aus Vorlage</button>
-      ` : ''}
+  const actionBar = state.lessonStudent ? `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:24px">
+      <button class="btn btn-primary btn-sm" onclick="window.newLesson()">+ Neue Stunde</button>
+      <button class="btn btn-ghost btn-sm" onclick="window.toggleBlueprintPicker()">📋 Aus Vorlage</button>
     </div>
-    ${state.lessonStudent && state.blueprintPickerOpen ? buildBlueprintPicker() : ''}`;
+    ${state.blueprintPickerOpen ? buildBlueprintPicker() : ''}` : '';
 
   if (!state.lessonStudent) {
     return `
       <h1 class="section-title">Unterricht</h1>
       <p class="section-sub">Stundenpläne verwalten</p>
-      ${studentSelector}
+      <div class="student-pills">${pills}</div>
       <div class="empty" style="padding:40px 0; text-align:center">
         <div class="empty-icon">🗒️</div>
         <div class="empty-text">Wähle einen Schüler, um die Stunden anzuzeigen</div>
@@ -128,9 +128,10 @@ function buildLessonsTeacher() {
     : state.lessonsData.map(l => buildLessonCard(l)).join('');
 
   return `
-    <h1 class="section-title">Unterricht — ${studentName}</h1>
-    <p class="section-sub">Stundenverlaufspläne</p>
-    ${studentSelector}
+    <h1 class="section-title">Unterricht</h1>
+    <p class="section-sub">Stundenverlaufspläne für ${escHtml(studentName)}</p>
+    <div class="student-pills">${pills}</div>
+    ${actionBar}
     <div class="lessons-list">${lessonCards}</div>
     ${buildBlueprintListSection()}`;
 }
@@ -211,6 +212,7 @@ function buildLessonDetail() {
 
   const otherLessons = state.lessonsData.filter(l => l.id !== lesson.id);
   const blueprintBtns = isAdmin ? `
+    <button class="btn btn-ghost btn-sm" onclick="window.toggleLessonViewMode()">👁 Ansicht</button>
     ${otherLessons.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="window.openLessonSidebarList()">📚 Bisherige Stunden</button>` : ''}
     <button class="btn btn-ghost btn-sm" onclick="window.saveLessonAsBlueprint()" title="Als Vorlage speichern">💾 Vorlage</button>
     ${state.blueprints.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="window.applyBlueprintToLesson()" title="Vorlage anwenden">📋 Anwenden</button>` : ''}
@@ -230,6 +232,55 @@ function buildLessonDetail() {
       </div>
       <div class="lesson-sections">${sectionsHtml}</div>
       ${isAdmin ? `<div id="pv-panel">${buildPersonalVocabPanel()}</div>` : ''}
+    </div>`;
+}
+
+function buildLessonView() {
+  const lesson = state.activeLesson;
+  const d = lesson.date ? new Date(lesson.date + 'T12:00:00') : null;
+  const dateStr = d ? d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  const title = lesson.title || dateStr;
+  const statusBadge = lesson.status === 'done'
+    ? `<span class="lesson-badge lesson-badge-done">✓ Fertig</span>`
+    : `<span class="lesson-badge lesson-badge-draft">Entwurf</span>`;
+
+  const sectionsHtml = SECTION_ORDER.map(type => {
+    const meta = SECTION_META[type];
+    const sec = lesson.sections.find(s => s.section_type === type);
+    const content = sec?.content || '';
+    const attachments = sec?.attachments || [];
+    const recapRefs = sec?.recap_refs || [];
+    if (!content && !attachments.length && !recapRefs.length) return '';
+
+    const attachChips = [...recapRefs.map(r =>
+      `<span class="attachment-chip">📌 ${escHtml(r.date)} — ${escHtml(r.title)}</span>`
+    ), ...attachments.map(a =>
+      `<a class="attachment-chip" href="${escHtml(a.url)}" target="_blank" rel="noopener">
+        ${a.type === 'file' ? '📎' : '🔗'} ${escHtml(a.label || a.name || a.url)}
+      </a>`
+    )].join('');
+
+    return `
+      <div class="lv-section">
+        <div class="lv-section-label">${meta.icon} ${meta.label}</div>
+        ${content ? `<div class="lv-section-body">${escHtml(content)}</div>` : ''}
+        ${attachChips ? `<div class="lv-attachments">${attachChips}</div>` : ''}
+      </div>`;
+  }).filter(Boolean).join('');
+
+  return `
+    <div class="session-header">
+      <button class="btn btn-ghost btn-sm" onclick="window.closeLesson()">← Zurück</button>
+      <span class="session-header-label">${dateStr}</span>
+      ${state.profile?.is_admin ? `<button class="btn btn-ghost btn-sm" onclick="window.toggleLessonViewMode()">✎ Bearbeiten</button>` : ''}
+    </div>
+    <div class="lesson-view">
+      <div class="lv-header">
+        <div class="lv-date">${dateStr}</div>
+        <h1 class="lv-title">${escHtml(title)}</h1>
+        ${statusBadge}
+      </div>
+      <div class="lv-sections">${sectionsHtml || '<p style="color:var(--text3);text-align:center;padding:40px 0">Noch kein Inhalt</p>'}</div>
     </div>`;
 }
 
@@ -381,6 +432,12 @@ window.openLesson = async (lessonId) => {
 window.closeLesson = () => {
   state.activeLesson = null;
   state.lessonSidebar = null;
+  state.lessonViewMode = false;
+  render();
+};
+
+window.toggleLessonViewMode = () => {
+  state.lessonViewMode = !state.lessonViewMode;
   render();
 };
 

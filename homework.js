@@ -220,11 +220,12 @@ function buildHomeworkTeacher() {
 
   return `
     <h1 class="section-title">Hausaufgaben</h1>
+    <p class="section-sub">Aufgaben erstellen und Abgaben einsehen</p>
 
     ${students.length === 0
-      ? `<div class="card" style="text-align:center;padding:48px">
-          <div style="font-size:48px;margin-bottom:16px">👥</div>
-          <p class="text-muted">Noch keine Schüler vorhanden.</p>
+      ? `<div class="card" style="text-align:center;padding:56px">
+          <div style="font-size:40px;margin-bottom:12px">👥</div>
+          <p style="color:var(--text2);font-size:15px">Noch keine Schüler vorhanden.</p>
         </div>`
       : `<div class="hw-student-grid">
           ${students.map(s => {
@@ -233,36 +234,38 @@ function buildHomeworkTeacher() {
               ? Math.round(stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length)
               : null;
             const initials = (s.full_name || s.email || '?').slice(0, 2).toUpperCase();
-            const totalAssignments = stats.pending + stats.completed;
+            const total = stats.pending + stats.completed;
             return `
               <div class="hw-student-card">
-                <div class="hw-student-card-header">
-                  <div class="hw-student-avatar-lg">${initials}</div>
-                  <div style="flex:1;min-width:0">
-                    <div style="font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.full_name || '—'}</div>
-                    <div class="text-muted text-sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.email}</div>
+                <div class="hw-sc-top">
+                  <div class="hw-sc-avatar">${initials}</div>
+                  <div class="hw-sc-info">
+                    <div class="hw-sc-name">${s.full_name || '—'}</div>
+                    <div class="hw-sc-email">${s.email}</div>
                   </div>
                 </div>
-                <div class="hw-student-stats">
-                  <div class="hw-stat-chip ${stats.pending > 0 ? 'orange' : ''}">
-                    <span class="hw-stat-num">${stats.pending}</span>
-                    <span class="hw-stat-label">offen</span>
+                <div class="hw-sc-stats">
+                  <div class="hw-sc-stat">
+                    <span class="hw-sc-stat-val ${stats.pending > 0 ? 'orange' : ''}">${stats.pending}</span>
+                    <span class="hw-sc-stat-lbl">Offen</span>
                   </div>
-                  <div class="hw-stat-chip ${stats.completed > 0 ? 'green' : ''}">
-                    <span class="hw-stat-num">${stats.completed}</span>
-                    <span class="hw-stat-label">erledigt</span>
+                  <div class="hw-sc-divider"></div>
+                  <div class="hw-sc-stat">
+                    <span class="hw-sc-stat-val ${stats.completed > 0 ? 'green' : ''}">${stats.completed}</span>
+                    <span class="hw-sc-stat-lbl">Erledigt</span>
                   </div>
                   ${avgScore !== null ? `
-                    <div class="hw-stat-chip blue">
-                      <span class="hw-stat-num">${avgScore}%</span>
-                      <span class="hw-stat-label">Ø Score</span>
-                    </div>` : ''}
+                  <div class="hw-sc-divider"></div>
+                  <div class="hw-sc-stat">
+                    <span class="hw-sc-stat-val blue">${avgScore}%</span>
+                    <span class="hw-sc-stat-lbl">Ø Score</span>
+                  </div>` : ''}
                 </div>
-                <div class="hw-student-actions">
-                  <button class="btn btn-ghost btn-sm" style="flex:1" onclick="hwStudentViewBtn('${s.id}')">
-                    Einsehen ${totalAssignments > 0 ? `(${totalAssignments})` : ''} →
+                <div class="hw-sc-actions">
+                  <button class="btn btn-ghost btn-sm" onclick="hwStudentViewBtn('${s.id}')">
+                    Aufgaben${total > 0 ? ` (${total})` : ''} →
                   </button>
-                  <button class="btn btn-primary btn-sm" style="flex:1" onclick="hwStartCreate('${s.id}')">
+                  <button class="btn btn-primary btn-sm" onclick="hwStartCreate('${s.id}')">
                     + Erstellen
                   </button>
                 </div>

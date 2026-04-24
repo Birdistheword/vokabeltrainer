@@ -46,6 +46,7 @@ let state = {
   lessonsData: [],
   lessonStudent: null,
   activeLesson: null,
+  lessonViewMode: false,
   lessonNotifications: [],
   lessonSidebar: null,
   blueprints: [],
