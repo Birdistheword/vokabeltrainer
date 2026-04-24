@@ -573,8 +573,13 @@ function buildPersonalVocabPanel() {
     const inSrs = !!v.srs;
     const srsIndicator = inSrs ? `<span class="pv-srs-badge">✓ SRS</span>` : '';
     const sentenceHtml = v.example_sentence
-      ? `<div class="pv-sentence">${escHtml(v.example_sentence)}</div>`
-      : `<div class="pv-sentence pv-sentence-loading">Satz wird generiert…</div>`;
+      ? `<div class="pv-sentarea" id="pv-sentarea-${v.id}">
+           <span class="pv-sentence">${escHtml(v.example_sentence)}</span>
+           <button class="pv-edit-btn" title="Satz bearbeiten" onclick="window.editPvSentence('${v.id}')">✏️</button>
+         </div>`
+      : `<div class="pv-sentarea" id="pv-sentarea-${v.id}">
+           <span class="pv-sentence pv-sentence-loading">Satz wird generiert…</span>
+         </div>`;
     return `
       <div class="pv-row" id="pv-row-${v.id}">
         <div class="pv-words">
@@ -661,14 +666,16 @@ async function _generatePvSentence(pvId, german, english) {
   if (!sentence) return;
   await sb.from('personal_vocab').update({ example_sentence: sentence }).eq('id', pvId);
   const item = state.activeLesson?.personalVocab?.find(v => v.id === pvId);
-  if (item) {
-    item.example_sentence = sentence;
-    const rowEl = document.getElementById('pv-row-' + pvId);
-    if (rowEl) {
-      const sentEl = rowEl.querySelector('.pv-sentence');
-      if (sentEl) { sentEl.textContent = sentence; sentEl.classList.remove('pv-sentence-loading'); }
-    }
-  }
+  if (item) item.example_sentence = sentence;
+  _renderPvSentArea(pvId, sentence);
+}
+
+function _renderPvSentArea(pvId, sentence) {
+  const area = document.getElementById('pv-sentarea-' + pvId);
+  if (!area) return;
+  area.innerHTML = `
+    <span class="pv-sentence">${escHtml(sentence)}</span>
+    <button class="pv-edit-btn" title="Satz bearbeiten" onclick="window.editPvSentence('${pvId}')">✏️</button>`;
 }
 
 window.removePersonalVocab = async (pvId) => {
@@ -677,6 +684,51 @@ window.removePersonalVocab = async (pvId) => {
   await sb.from('personal_vocab').delete().eq('id', pvId);
   lesson.personalVocab = (lesson.personalVocab || []).filter(v => v.id !== pvId);
   refreshPvPanel();
+};
+
+// ========== PERSONAL VOCAB SENTENCE EDITING ==========
+
+window.editPvSentence = (pvId) => {
+  const area = document.getElementById('pv-sentarea-' + pvId);
+  if (!area) return;
+  const item = state.activeLesson?.personalVocab?.find(v => v.id === pvId);
+  const current = item?.example_sentence || '';
+  area.innerHTML = `
+    <input class="pv-sentence-input" id="pv-sentinput-${pvId}" type="text" value="">
+    <button class="btn-xs btn-primary" onclick="window.savePvSentence('${pvId}')">✓ Speichern</button>
+    <button class="btn-xs" onclick="window.cancelPvSentenceEdit('${pvId}')">✗</button>`;
+  const inp = document.getElementById('pv-sentinput-' + pvId);
+  if (inp) {
+    inp.value = current;
+    inp.focus();
+    inp.select();
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') window.savePvSentence(pvId);
+      if (e.key === 'Escape') window.cancelPvSentenceEdit(pvId);
+    });
+  }
+};
+
+window.savePvSentence = async (pvId) => {
+  const inp = document.getElementById('pv-sentinput-' + pvId);
+  if (!inp) return;
+  const sentence = inp.value.trim();
+  if (!sentence) return;
+  await sb.from('personal_vocab').update({ example_sentence: sentence }).eq('id', pvId);
+  const item = state.activeLesson?.personalVocab?.find(v => v.id === pvId);
+  if (item) item.example_sentence = sentence;
+  _renderPvSentArea(pvId, sentence);
+};
+
+window.cancelPvSentenceEdit = (pvId) => {
+  const item = state.activeLesson?.personalVocab?.find(v => v.id === pvId);
+  const sentence = item?.example_sentence;
+  if (sentence) {
+    _renderPvSentArea(pvId, sentence);
+  } else {
+    const area = document.getElementById('pv-sentarea-' + pvId);
+    if (area) area.innerHTML = `<span class="pv-sentence pv-sentence-loading">—</span>`;
+  }
 };
 
 // ========== BLUEPRINTS ==========

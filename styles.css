@@ -1399,6 +1399,37 @@ body {
 .chip-draft { background: var(--bg); color: var(--text3); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; white-space: nowrap; }
 .chip-active { background: var(--orange-light); color: var(--orange); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; white-space: nowrap; }
 
+/* Personal vocab sentence editing */
+.pv-sentarea {
+  display: flex; align-items: flex-start; gap: 6px;
+  flex: 2; min-width: 180px; padding-top: 2px;
+}
+
+.pv-sentarea .pv-sentence {
+  flex: 1; padding-top: 0;
+  min-width: 0;
+}
+
+.pv-edit-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 13px; padding: 1px 4px; border-radius: 4px;
+  opacity: 0; flex-shrink: 0; line-height: 1;
+  transition: opacity 0.15s, background 0.15s;
+  color: var(--text3);
+}
+
+.pv-row:hover .pv-edit-btn { opacity: 1; }
+.pv-edit-btn:hover { background: var(--surface2); color: var(--accent); }
+
+.pv-sentence-input {
+  flex: 1; min-width: 0;
+  padding: 4px 8px;
+  border: 1.5px solid var(--accent); border-radius: 6px;
+  background: var(--surface); color: var(--text);
+  font-family: inherit; font-size: 13px; font-style: italic;
+  outline: none;
+}
+
 /* Use Inter everywhere in the new layout shell */
 .app-shell, .app-shell * {
   font-family: 'Inter', system-ui, sans-serif;
