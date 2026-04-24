@@ -73,10 +73,10 @@ let state = {
 // ========== INTERVALS (Minuten) ==========
 const RATING_INTERVALS = { 1: 1, 2: 5, 3: 120, 4: 4320 }; // 4320 = 3 Tage
 const RATING_LABELS = {
-  1: { label: '😕 Schlecht', interval: '1 Min' },
-  2: { label: '😐 Okay',     interval: '5 Min' },
-  3: { label: '🙂 Gut',      interval: '2 Std' },
-  4: { label: '😄 Sehr gut', interval: '3 Tage' }
+  1: { label: 'Kenne ich nicht' },
+  2: { label: 'Ich kann mich kaum erinnern' },
+  3: { label: 'Ich kann mich schnell erinnern' },
+  4: { label: 'Ich kann mich sofort erinnern' }
 };
 const NEW_PER_DAY = 10;
 
@@ -1230,7 +1230,6 @@ function buildLearnView() {
         ${[1,2,3,4].map(r => `
           <button class="rating-btn r${r}" onclick="rateCard(${r})">
             <span class="r-label">${RATING_LABELS[r].label}</span>
-            <span class="r-interval">${RATING_LABELS[r].interval}</span>
           </button>
         `).join('')}
       </div>` : `
