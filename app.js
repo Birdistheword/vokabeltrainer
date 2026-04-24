@@ -82,7 +82,11 @@ const NEW_PER_DAY = 10;
 
 // ========== UTILS ==========
 function el(id) { return document.getElementById(id); }
-function isSuperAdmin() { return !!state.profile?.is_superadmin; }
+function isSuperAdmin() {
+  if (state.profile?.is_superadmin) return true;
+  const email = state.user?.email || state.user?.user_metadata?.email;
+  return email === 'riccardo@flow-heroes.com';
+}
 function pwField(inputId, placeholder) {
   return `
     <div class="pw-wrap">
