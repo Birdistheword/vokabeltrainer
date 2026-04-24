@@ -536,7 +536,8 @@ async function _generatePvSentence(pvId, german, english) {
     body: { vocab: [{ id: pvId, german, english }] }
   });
   if (error) {
-    console.error('Sentence gen error:', error);
+    const body = await error.context?.json?.().catch(() => null);
+    console.error('Sentence gen error:', error.message, body);
     const rowEl = document.getElementById('pv-row-' + pvId);
     if (rowEl) {
       const sentEl = rowEl.querySelector('.pv-sentence');
