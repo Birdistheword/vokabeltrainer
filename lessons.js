@@ -99,17 +99,11 @@ function buildLessonsTeacher() {
       </button>`;
   }).join('');
 
-  const actionBar = state.lessonStudent ? `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:24px">
-      <button class="btn btn-primary btn-sm" onclick="window.newLesson()">+ Neue Stunde</button>
-      <button class="btn btn-ghost btn-sm" onclick="window.toggleBlueprintPicker()">📋 Aus Vorlage</button>
-    </div>
-    ${state.blueprintPickerOpen ? buildBlueprintPicker() : ''}` : '';
-
   if (!state.lessonStudent) {
     return `
-      <h1 class="section-title">Unterricht</h1>
-      <p class="section-sub">Stundenpläne verwalten</p>
+      <div class="page-header">
+        <div><div class="page-title">Unterricht</div><div class="page-sub">Stundenpläne verwalten</div></div>
+      </div>
       <div class="student-pills">${pills}</div>
       <div class="empty" style="padding:40px 0; text-align:center">
         <div class="empty-icon">🗒️</div>
@@ -120,20 +114,97 @@ function buildLessonsTeacher() {
 
   const student = state.students.find(s => s.id === state.lessonStudent);
   const studentName = student?.full_name || student?.email || '';
-  const lessonCards = state.lessonsData.length === 0
-    ? `<div class="empty" style="padding:40px; text-align:center">
-        <div class="empty-icon">📋</div>
-        <div class="empty-text">Noch keine Stunden angelegt</div>
-       </div>`
-    : state.lessonsData.map(l => buildLessonCard(l)).join('');
+
+  const actionBar = `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:24px">
+      <button class="btn btn-primary btn-sm" onclick="window.newLesson()">+ Neue Stunde</button>
+      <button class="btn btn-ghost btn-sm" onclick="window.toggleBlueprintPicker()">📋 Aus Vorlage</button>
+    </div>
+    ${state.blueprintPickerOpen ? buildBlueprintPicker() : ''}`;
+
+  let lessonsHtml;
+  if (state.lessonsData.length === 0) {
+    lessonsHtml = `<div class="empty" style="padding:40px; text-align:center">
+      <div class="empty-icon">📋</div>
+      <div class="empty-text">Noch keine Stunden angelegt</div>
+    </div>`;
+  } else {
+    const groups = groupLessonsByMonth(state.lessonsData);
+    const MONTH_COLORS = ['c-blue', 'c-green', 'c-orange'];
+    const DOT_COLORS = ['var(--accent)', 'var(--green)', 'var(--orange)'];
+    lessonsHtml = groups.map((g, gi) => {
+      const color = MONTH_COLORS[gi % 3];
+      const dotColor = DOT_COLORS[gi % 3];
+      const rows = g.lessons.map(l => buildLessonRow(l, color)).join('');
+      return `
+        <div class="lesson-group">
+          <div class="group-header">
+            <div class="group-dot" style="background:${dotColor}"></div>
+            <span class="group-name">${escHtml(g.label)}</span>
+            <span class="group-ct">· ${g.lessons.length} Stunde${g.lessons.length !== 1 ? 'n' : ''}</span>
+          </div>
+          <div class="l-table">
+            <div class="l-thead" style="grid-template-columns:1fr 130px 130px 110px">
+              <div class="l-th">Stunde</div>
+              <div class="l-th">Status</div>
+              <div class="l-th">Datum</div>
+              <div class="l-th"></div>
+            </div>
+            ${rows}
+          </div>
+        </div>`;
+    }).join('');
+  }
 
   return `
-    <h1 class="section-title">Unterricht</h1>
-    <p class="section-sub">Stundenverlaufspläne für ${escHtml(studentName)}</p>
+    <div class="page-header">
+      <div>
+        <div class="page-title">Unterricht</div>
+        <div class="page-sub">Stundenverlaufspläne für ${escHtml(studentName)}</div>
+      </div>
+    </div>
     <div class="student-pills">${pills}</div>
     ${actionBar}
-    <div class="lessons-list">${lessonCards}</div>
+    ${lessonsHtml}
     ${buildBlueprintListSection()}`;
+}
+
+function groupLessonsByMonth(lessons) {
+  const groups = {};
+  const order = [];
+  for (const l of lessons) {
+    const d = l.date ? new Date(l.date + 'T12:00:00') : null;
+    const key = d
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      : 'unknown';
+    const label = d
+      ? d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
+      : 'Unbekannt';
+    if (!groups[key]) { groups[key] = { label, lessons: [] }; order.push(key); }
+    groups[key].lessons.push(l);
+  }
+  return order.map(k => ({ key: k, label: groups[k].label, lessons: groups[k].lessons }));
+}
+
+function buildLessonRow(lesson, colorClass = 'c-blue') {
+  const d = lesson.date ? new Date(lesson.date + 'T12:00:00') : null;
+  const dateStr = d
+    ? d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '—';
+  const title = escHtml(lesson.title || `Stunde vom ${dateStr}`);
+  const statusChip = lesson.status === 'done'
+    ? `<span class="chip-done">✓ Fertig</span>`
+    : `<span class="chip-draft">Entwurf</span>`;
+  return `
+    <div class="l-row ${colorClass}" style="grid-template-columns:1fr 130px 130px 110px"
+      onclick="window.openLesson('${lesson.id}')">
+      <div class="l-cell l-title">${title}</div>
+      <div class="l-cell">${statusChip}</div>
+      <div class="l-cell">${dateStr}</div>
+      <div class="l-cell" style="display:flex;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();window.openLesson('${lesson.id}')">Öffnen →</button>
+      </div>
+    </div>`;
 }
 
 function buildLessonsStudent() {

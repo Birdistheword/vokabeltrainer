@@ -1169,3 +1169,246 @@
     .admin-grid { grid-template-columns: 1fr; }
     .login-box { padding: 32px 24px; }
   }
+
+/* ================================================================
+   NEW SIDEBAR LAYOUT — replaces topbar+module-bar pattern
+   ================================================================ */
+
+:root {
+  --sidebar-w: 232px;
+  --accent-dark: #3b5bdb;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Shell */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  width: 100%;
+}
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 100vh;
+}
+
+.sidebar-logo {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sidebar-logo-mark {
+  width: 30px; height: 30px;
+  background: var(--accent);
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-size: 15px; font-weight: 900;
+  flex-shrink: 0;
+}
+
+.sidebar-logo-text {
+  font-size: 15px; font-weight: 800;
+  color: var(--text); letter-spacing: -0.2px;
+}
+
+.sidebar-logo-text span { color: var(--accent); }
+
+.sidebar-nav {
+  flex: 1;
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+
+.nav-section-label {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text3);
+  padding: 10px 12px 4px;
+}
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13.5px; font-weight: 600;
+  color: var(--text2);
+  cursor: pointer;
+  border: none; background: none;
+  width: 100%; text-align: left;
+  font-family: inherit;
+  transition: background 0.1s, color 0.1s;
+}
+
+.nav-item:hover { background: var(--bg); color: var(--text); }
+.nav-item.active { background: var(--accent-light); color: var(--accent); }
+
+.nav-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: white;
+  font-size: 10px; font-weight: 800;
+  padding: 2px 7px; border-radius: 20px;
+  line-height: 1.5;
+}
+
+.sidebar-footer {
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.user-chip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.user-chip:hover { background: var(--bg); }
+
+.user-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--accent); color: white;
+  font-size: 12px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-name { font-size: 13px; font-weight: 700; color: var(--text); }
+.user-sub { font-size: 11px; color: var(--text3); margin-top: 1px; }
+
+/* Main area */
+.app-main {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+
+.topbar {
+  height: 58px !important;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 28px; gap: 12px;
+  flex-shrink: 0;
+  box-shadow: none !important;
+  position: static !important;
+}
+
+.topbar-title { font-size: 16px; font-weight: 800; color: var(--text); flex: 1; letter-spacing: -0.2px; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+
+.content {
+  flex: 1; overflow-y: auto;
+  padding: 28px 32px;
+}
+
+.content-subnav {
+  margin-bottom: 24px;
+}
+
+/* Page header */
+.page-header {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.page-title { font-size: 22px; font-weight: 900; letter-spacing: -0.4px; color: var(--text); }
+.page-sub { font-size: 13px; color: var(--text2); margin-top: 4px; font-weight: 500; }
+
+/* Lesson groups */
+.lesson-group { margin-bottom: 28px; }
+
+.group-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 2px; margin-bottom: 6px;
+}
+
+.group-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.group-name { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text); }
+.group-ct { font-size: 12px; color: var(--text3); font-weight: 500; }
+
+/* Table pattern */
+.l-table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.l-thead {
+  display: grid;
+  padding: 0 18px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.l-th {
+  padding: 9px 0;
+  font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--text3);
+}
+
+.l-row {
+  display: grid;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.1s;
+}
+
+.l-row:last-child { border-bottom: none; }
+.l-row:hover { background: #fafbff; }
+
+.l-row::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+}
+
+.l-row.c-blue::before { background: var(--accent); }
+.l-row.c-green::before { background: var(--green); }
+.l-row.c-orange::before { background: var(--orange); }
+
+.l-cell { padding: 13px 0; font-size: 13px; color: var(--text2); }
+.l-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+/* Status chips */
+.chip-done { background: var(--green-light); color: var(--green); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; white-space: nowrap; }
+.chip-draft { background: var(--bg); color: var(--text3); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; white-space: nowrap; }
+.chip-active { background: var(--orange-light); color: var(--orange); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; white-space: nowrap; }
+
+/* Use Inter everywhere in the new layout shell */
+.app-shell, .app-shell * {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+/* Keep Lora for flashcard words and lesson titles */
+.card-word, .card-translation, .lv-title, .lesson-detail-title-input,
+.lesson-sidebar-title, .wait-timer, .done-title {
+  font-family: 'Lora', serif;
+}
+/* Form inputs keep Inter too */
+.app-shell input, .app-shell select, .app-shell textarea {
+  font-family: 'Inter', system-ui, sans-serif;
+}

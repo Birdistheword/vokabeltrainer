@@ -218,61 +218,67 @@ function buildHomeworkTeacher() {
     }
   }
 
-  return `
-    <h1 class="section-title">Hausaufgaben</h1>
-    <p class="section-sub">Aufgaben erstellen und Abgaben einsehen</p>
+  if (students.length === 0) {
+    return `
+      <div class="page-header">
+        <div><div class="page-title">Hausaufgaben</div><div class="page-sub">Aufgaben erstellen und Abgaben einsehen</div></div>
+      </div>
+      <div class="card" style="text-align:center;padding:56px">
+        <div style="font-size:40px;margin-bottom:12px">👥</div>
+        <p style="color:var(--text2);font-size:15px">Noch keine Schüler vorhanden.</p>
+      </div>`;
+  }
 
-    ${students.length === 0
-      ? `<div class="card" style="text-align:center;padding:56px">
-          <div style="font-size:40px;margin-bottom:12px">👥</div>
-          <p style="color:var(--text2);font-size:15px">Noch keine Schüler vorhanden.</p>
-        </div>`
-      : `<div class="hw-student-grid">
-          ${students.map(s => {
-            const stats = statsMap[s.id] || { pending: 0, completed: 0, scores: [] };
-            const avgScore = stats.scores.length > 0
-              ? Math.round(stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length)
-              : null;
-            const initials = (s.full_name || s.email || '?').slice(0, 2).toUpperCase();
-            const total = stats.pending + stats.completed;
-            return `
-              <div class="hw-student-card">
-                <div class="hw-sc-top">
-                  <div class="hw-sc-avatar">${initials}</div>
-                  <div class="hw-sc-info">
-                    <div class="hw-sc-name">${s.full_name || '—'}</div>
-                    <div class="hw-sc-email">${s.email}</div>
-                  </div>
-                </div>
-                <div class="hw-sc-stats">
-                  <div class="hw-sc-stat">
-                    <span class="hw-sc-stat-val ${stats.pending > 0 ? 'orange' : ''}">${stats.pending}</span>
-                    <span class="hw-sc-stat-lbl">Offen</span>
-                  </div>
-                  <div class="hw-sc-divider"></div>
-                  <div class="hw-sc-stat">
-                    <span class="hw-sc-stat-val ${stats.completed > 0 ? 'green' : ''}">${stats.completed}</span>
-                    <span class="hw-sc-stat-lbl">Erledigt</span>
-                  </div>
-                  ${avgScore !== null ? `
-                  <div class="hw-sc-divider"></div>
-                  <div class="hw-sc-stat">
-                    <span class="hw-sc-stat-val blue">${avgScore}%</span>
-                    <span class="hw-sc-stat-lbl">Ø Score</span>
-                  </div>` : ''}
-                </div>
-                <div class="hw-sc-actions">
-                  <button class="btn btn-ghost btn-sm" onclick="hwStudentViewBtn('${s.id}')">
-                    Aufgaben${total > 0 ? ` (${total})` : ''} →
-                  </button>
-                  <button class="btn btn-primary btn-sm" onclick="hwStartCreate('${s.id}')">
-                    + Erstellen
-                  </button>
-                </div>
-              </div>`;
-          }).join('')}
-        </div>`
-    }`;
+  const COLS = '1fr 100px 100px 100px 180px';
+  const rows = students.map((s, i) => {
+    const stats = statsMap[s.id] || { pending: 0, completed: 0, scores: [] };
+    const avgScore = stats.scores.length > 0
+      ? Math.round(stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length)
+      : null;
+    const initials = (s.full_name || s.email || '?').slice(0, 2).toUpperCase();
+    const total = stats.pending + stats.completed;
+    const rowColor = i % 3 === 0 ? 'c-blue' : i % 3 === 1 ? 'c-green' : 'c-orange';
+    const avatarColors = ['var(--accent)', 'var(--green)', 'var(--orange)'];
+    const avatarBg = avatarColors[i % 3];
+    return `
+      <div class="l-row ${rowColor}" style="grid-template-columns:${COLS}">
+        <div class="l-cell" style="display:flex;align-items:center;gap:12px">
+          <div style="width:34px;height:34px;border-radius:50%;background:${avatarBg};color:white;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${initials}</div>
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text)">${escHtml(s.full_name || '—')}</div>
+            <div style="font-size:12px;color:var(--text3)">${escHtml(s.email || '')}</div>
+          </div>
+        </div>
+        <div class="l-cell" style="text-align:center">
+          <span style="font-size:18px;font-weight:900;color:${stats.pending > 0 ? 'var(--orange)' : 'var(--text3)'}">${stats.pending}</span>
+        </div>
+        <div class="l-cell" style="text-align:center">
+          <span style="font-size:18px;font-weight:900;color:${stats.completed > 0 ? 'var(--green)' : 'var(--text3)'}">${stats.completed}</span>
+        </div>
+        <div class="l-cell" style="text-align:center">
+          <span style="font-size:18px;font-weight:900;color:var(--accent)">${avgScore !== null ? avgScore + '%' : '—'}</span>
+        </div>
+        <div class="l-cell" style="display:flex;gap:6px;justify-content:flex-end;align-items:center">
+          <button class="btn btn-ghost btn-sm" onclick="hwStudentViewBtn('${s.id}')">Aufgaben${total > 0 ? ` (${total})` : ''} →</button>
+          <button class="btn btn-primary btn-sm" onclick="hwStartCreate('${s.id}')">+ Erstellen</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="page-header">
+      <div><div class="page-title">Hausaufgaben</div><div class="page-sub">Aufgaben erstellen und Abgaben einsehen</div></div>
+    </div>
+    <div class="l-table">
+      <div class="l-thead" style="grid-template-columns:${COLS}">
+        <div class="l-th">Schüler</div>
+        <div class="l-th" style="text-align:center">Offen</div>
+        <div class="l-th" style="text-align:center">Erledigt</div>
+        <div class="l-th" style="text-align:center">Ø Score</div>
+        <div class="l-th"></div>
+      </div>
+      ${rows}
+    </div>`;
 }
 
 function buildHomeworkTeacherStudentView() {

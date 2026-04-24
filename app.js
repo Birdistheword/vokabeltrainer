@@ -755,57 +755,98 @@ function buildApp() {
   if (state.view === 'set-password') return buildSetPassword();
 
   const isAdmin = state.profile?.is_admin;
+  const content = isAdmin ? buildAdmin() : buildStudent();
+  const lessonSidebar = state.lessonSidebar ? buildLessonSidebar() : '';
 
-  // Context-sensitive sub-tabs (only shown for vocab module)
-  let subTabs = '';
-  if (state.activeModule === 'vocab') {
-    if (isAdmin) {
-      subTabs = `
-        <button class="nav-tab ${state.adminTab === 'students' ? 'active' : ''}" onclick="switchAdminTab('students')">Schüler</button>
-        <button class="nav-tab ${state.adminTab === 'vocab' ? 'active' : ''}" onclick="switchAdminTab('vocab')">Vokabeln</button>`;
-    } else {
-      subTabs = `
-        <button class="nav-tab ${state.studentTab === 'learn' ? 'active' : ''}" onclick="switchStudentTab('learn')">Lernen</button>
-        <button class="nav-tab ${state.studentTab === 'chapters' ? 'active' : ''}" onclick="switchStudentTab('chapters')">Fortschritt</button>
-        <button class="nav-tab ${state.studentTab === 'vocab' ? 'active' : ''}" onclick="switchStudentTab('vocab')">Vokabeln</button>`;
-    }
-  }
+  return `
+    <div class="app-shell">
+      ${buildMainSidebar()}
+      <div class="app-main">
+        ${buildMainTopbar()}
+        <div class="content">
+          ${buildVocabSubNav()}
+          ${content}
+        </div>
+      </div>
+    </div>
+    ${lessonSidebar}`;
+}
 
-  const bellBadge = isAdmin && state.lessonNotifications.length > 0
-    ? `<span class="topbar-bell-badge">${state.lessonNotifications.length}</span>` : '';
-  const bell = isAdmin ? `
-    <button class="topbar-bell ${state.lessonNotifications.length > 0 ? 'has-notifications' : ''}"
-      onclick="window.switchModule('lessons')" title="Benachrichtigungen">
-      🔔${bellBadge}
-    </button>` : '';
+function buildMainSidebar() {
+  const isAdmin = state.profile?.is_admin;
+  const visibleModules = MODULES.filter(m => m.id !== 'superadmin' || isSuperAdmin());
+  const bellCount = isAdmin ? state.lessonNotifications.length : 0;
 
-  const topbar = `
+  const navItems = visibleModules.map(m => {
+    const isActive = state.activeModule === m.id;
+    const badge = m.id === 'lessons' && bellCount > 0
+      ? `<span class="nav-badge">${bellCount}</span>` : '';
+    return `
+      <button class="nav-item ${isActive ? 'active' : ''}" onclick="switchModule('${m.id}')">
+        <span class="nav-icon">${m.icon}</span>
+        ${m.label}
+        ${badge}
+      </button>`;
+  }).join('');
+
+  const name = state.profile?.full_name || state.user?.email || '';
+  const initials = name.slice(0, 2).toUpperCase();
+  const role = isAdmin ? 'Lehrer' : 'Schüler';
+
+  return `
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-mark">✦</div>
+        <div class="sidebar-logo-text">Lern<span>portal</span></div>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Module</div>
+        ${navItems}
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-chip">
+          <div class="user-avatar">${initials}</div>
+          <div>
+            <div class="user-name">${escHtml(name)}</div>
+            <div class="user-sub">${role}</div>
+          </div>
+        </div>
+      </div>
+    </aside>`;
+}
+
+function buildMainTopbar() {
+  const moduleLabels = {
+    vocab: 'Vokabeltrainer',
+    homework: 'Hausaufgaben',
+    lessons: 'Unterricht',
+    superadmin: 'Verwaltung'
+  };
+  const title = moduleLabels[state.activeModule] || 'Lernportal';
+  return `
     <div class="topbar">
-      <div class="topbar-logo">✦ <span>Lern</span>portal</div>
-      <div class="topbar-right">
-        ${bell}
-        <span class="text-sm text-muted">${state.profile?.full_name || state.profile?.email || ''}</span>
+      <div class="topbar-title">${title}</div>
+      <div class="topbar-actions">
         <button class="btn btn-ghost btn-sm" onclick="logout()">Abmelden</button>
       </div>
     </div>`;
+}
 
-  const visibleModules = MODULES.filter(m => m.id !== 'superadmin' || isSuperAdmin());
-  const moduleBar = `
-    <div class="module-bar">
-      <div class="module-tabs">
-        ${visibleModules.map(m => `
-          <button class="module-tab ${state.activeModule === m.id ? 'active' : ''} ${m.comingSoon ? 'coming-soon' : ''}"
-            onclick="switchModule('${m.id}')">
-            ${m.icon} ${m.label}
-            ${m.comingSoon ? '<span class="module-coming-badge">bald</span>' : ''}
-          </button>`).join('')}
-      </div>
-      ${subTabs ? `<div class="nav-tabs">${subTabs}</div>` : ''}
-    </div>`;
-
-  const content = isAdmin ? buildAdmin() : buildStudent();
-  const sidebar = state.lessonSidebar ? buildLessonSidebar() : '';
-  return `${topbar}${moduleBar}<div class="main">${content}</div>${sidebar}`;
+function buildVocabSubNav() {
+  if (state.activeModule !== 'vocab') return '';
+  const isAdmin = state.profile?.is_admin;
+  let tabs = '';
+  if (isAdmin) {
+    tabs = `
+      <button class="nav-tab ${state.adminTab === 'students' ? 'active' : ''}" onclick="switchAdminTab('students')">Schüler</button>
+      <button class="nav-tab ${state.adminTab === 'vocab' ? 'active' : ''}" onclick="switchAdminTab('vocab')">Vokabeln</button>`;
+  } else {
+    tabs = `
+      <button class="nav-tab ${state.studentTab === 'learn' ? 'active' : ''}" onclick="switchStudentTab('learn')">Lernen</button>
+      <button class="nav-tab ${state.studentTab === 'chapters' ? 'active' : ''}" onclick="switchStudentTab('chapters')">Fortschritt</button>
+      <button class="nav-tab ${state.studentTab === 'vocab' ? 'active' : ''}" onclick="switchStudentTab('vocab')">Vokabeln</button>`;
+  }
+  return `<div class="content-subnav"><div class="nav-tabs">${tabs}</div></div>`;
 }
 
 function buildLogin() {
