@@ -534,7 +534,7 @@ window.addPersonalVocab = async () => {
 async function _generatePvSentence(pvId, german, english) {
   const { data, error } = await sb.functions.invoke('generate-vocab-sentences', {
     body: { vocab: [{ id: pvId, german, english }] },
-    headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    headers: { Authorization: `Bearer ${SUPABASE_JWT_KEY}` },
   });
   if (error) {
     const body = await error.context?.json?.().catch(() => null);

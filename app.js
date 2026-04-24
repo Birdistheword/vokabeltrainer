@@ -1,6 +1,7 @@
   // HIER DEINE SUPABASE ZUGANGSDATEN EINTRAGEN:
   const SUPABASE_URL = 'https://caaujaknoenoswrxaqpa.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_7VrFnwHgcKDWAZU6ONnvrw_6Yx3neGM';
+  const SUPABASE_JWT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNhYXVqYWtub2Vub3N3cnhhcXBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMjU2NDYsImV4cCI6MjA4OTkwMTY0Nn0.aKWfoW32NwCUj4lJqi6OnZCiO2sID7kZOv1trJ4cZEM';
 
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -1689,7 +1690,7 @@ window.generateAllSentences = async () => {
     try {
       const { data, error: fnError } = await sb.functions.invoke('generate-vocab-sentences', {
         body: { vocab: batch },
-        headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        headers: { Authorization: `Bearer ${SUPABASE_JWT_KEY}` },
       });
       if (fnError) throw fnError;
 
