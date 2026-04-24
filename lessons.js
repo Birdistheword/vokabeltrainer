@@ -209,7 +209,9 @@ function buildLessonDetail() {
       ${lesson.status === 'done' ? '✓ Fertig' : 'Als fertig markieren'}
     </button>` : '';
 
+  const otherLessons = state.lessonsData.filter(l => l.id !== lesson.id);
   const blueprintBtns = isAdmin ? `
+    ${otherLessons.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="window.openLessonSidebarList()">📚 Bisherige Stunden</button>` : ''}
     <button class="btn btn-ghost btn-sm" onclick="window.saveLessonAsBlueprint()" title="Als Vorlage speichern">💾 Vorlage</button>
     ${state.blueprints.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="window.applyBlueprintToLesson()" title="Vorlage anwenden">📋 Anwenden</button>` : ''}
     <button class="btn btn-danger btn-sm" onclick="window.deleteLesson()">Löschen</button>
@@ -699,7 +701,42 @@ window.deleteBlueprint = async (bpId) => {
 // ========== LESSON SIDEBAR ==========
 
 function buildLessonSidebar() {
+  const sb_state = state.lessonSidebar;
+  return sb_state.mode === 'list' ? buildSidebarList() : buildSidebarDetail();
+}
+
+function buildSidebarList() {
+  const currentId = state.activeLesson?.id;
+  const lessons = state.lessonsData.filter(l => l.id !== currentId);
+
+  const cards = lessons.map(l => {
+    const d = l.date ? new Date(l.date + 'T12:00:00') : null;
+    const dateStr = d ? d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+    const title = l.title || `Stunde vom ${dateStr}`;
+    return `
+      <button class="sidebar-lesson-card" data-lid="${l.id}" onclick="window.sidebarOpenDetail(this.dataset.lid)">
+        <div class="sidebar-lesson-card-date">${dateStr}</div>
+        <div class="sidebar-lesson-card-title">${escHtml(title)}</div>
+        <span class="sidebar-lesson-card-arrow">→</span>
+      </button>`;
+  }).join('');
+
+  return `
+    <div class="lesson-sidebar-overlay" onclick="window.closeLessonSidebar()"></div>
+    <div class="lesson-sidebar">
+      <div class="lesson-sidebar-header">
+        <div class="lesson-sidebar-title">Bisherige Stunden</div>
+        <button class="lesson-sidebar-close" onclick="window.closeLessonSidebar()">✕</button>
+      </div>
+      <div class="lesson-sidebar-body">
+        ${cards || '<div style="padding:24px;color:var(--text3);text-align:center">Keine anderen Stunden</div>'}
+      </div>
+    </div>`;
+}
+
+function buildSidebarDetail() {
   const lesson = state.lessonSidebar;
+  const isAdmin = state.profile?.is_admin;
   const d = lesson.date ? new Date(lesson.date + 'T12:00:00') : null;
   const dateStr = d ? d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
   const title = lesson.title || `Stunde vom ${dateStr}`;
@@ -708,23 +745,36 @@ function buildLessonSidebar() {
     const meta = SECTION_META[type];
     const sec = (lesson.sections || []).find(s => s.section_type === type);
     if (!sec?.content) return '';
+    const copyBtn = isAdmin ? `
+      <button class="sidebar-copy-btn" data-type="${type}"
+        onclick="window.copySectionToLesson(this.dataset.type)">
+        Übernehmen
+      </button>` : '';
     return `
       <div class="sidebar-section">
         <div class="sidebar-section-header">
           <span>${meta.icon}</span>
           <span>${meta.label}</span>
+          ${copyBtn}
         </div>
         <div class="sidebar-section-content">${escHtml(sec.content)}</div>
       </div>`;
   }).filter(Boolean).join('');
 
+  const backBtn = lesson.fromList
+    ? `<button class="lesson-sidebar-back" onclick="window.sidebarBackToList()">←</button>`
+    : '';
+
   return `
     <div class="lesson-sidebar-overlay" onclick="window.closeLessonSidebar()"></div>
     <div class="lesson-sidebar">
       <div class="lesson-sidebar-header">
-        <div>
-          <div class="lesson-sidebar-date">${dateStr}</div>
-          <div class="lesson-sidebar-title">${escHtml(title)}</div>
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+          ${backBtn}
+          <div style="min-width:0">
+            <div class="lesson-sidebar-date">${dateStr}</div>
+            <div class="lesson-sidebar-title">${escHtml(title)}</div>
+          </div>
         </div>
         <button class="lesson-sidebar-close" onclick="window.closeLessonSidebar()">✕</button>
       </div>
@@ -734,16 +784,51 @@ function buildLessonSidebar() {
     </div>`;
 }
 
+window.openLessonSidebarList = () => {
+  state.lessonSidebar = { mode: 'list' };
+  render();
+};
+
+window.sidebarOpenDetail = async (lessonId) => {
+  const { data: lessonRes } = await sb.from('lessons').select('*').eq('id', lessonId).single();
+  const { data: sections } = await sb.from('lesson_sections').select('*').eq('lesson_id', lessonId).order('sort_order');
+  state.lessonSidebar = { mode: 'detail', ...lessonRes, sections: sections || [], fromList: true };
+  render();
+};
+
 window.openLessonSidebar = async (lessonId) => {
   const { data: lessonRes } = await sb.from('lessons').select('*').eq('id', lessonId).single();
   const { data: sections } = await sb.from('lesson_sections').select('*').eq('lesson_id', lessonId).order('sort_order');
-  state.lessonSidebar = { ...lessonRes, sections: sections || [] };
+  state.lessonSidebar = { mode: 'detail', ...lessonRes, sections: sections || [], fromList: false };
+  render();
+};
+
+window.sidebarBackToList = () => {
+  state.lessonSidebar = { mode: 'list' };
   render();
 };
 
 window.closeLessonSidebar = () => {
   state.lessonSidebar = null;
   render();
+};
+
+window.copySectionToLesson = async (type) => {
+  const sidebarSec = state.lessonSidebar?.sections?.find(s => s.section_type === type);
+  if (!sidebarSec?.content) return;
+  const content = sidebarSec.content;
+
+  const lessonSec = state.activeLesson?.sections?.find(s => s.section_type === type);
+  if (!lessonSec) return;
+
+  await sb.from('lesson_sections').update({ content }).eq('id', lessonSec.id);
+  lessonSec.content = content;
+
+  // Update the textarea live without full re-render
+  const textarea = document.querySelector(`textarea[data-type="${type}"]`);
+  if (textarea) textarea.value = content;
+
+  showToast(`${SECTION_META[type].label} übernommen`, 'success');
 };
 
 window.addAllVocabToSrs = async () => {
