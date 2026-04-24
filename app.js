@@ -9,7 +9,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let state = {
   user: null,
   profile: null,
-  view: 'login',        // login | student | admin
+  view: 'login',        // login | set-password | student | admin
   adminTab: 'students', // students | vocab | stats
   studentTab: 'learn',  // learn | chapters
   selectedLevel: null,
@@ -82,6 +82,22 @@ const NEW_PER_DAY = 10;
 
 // ========== UTILS ==========
 function el(id) { return document.getElementById(id); }
+function isSuperAdmin() { return state.profile?.email === 'riccardo@flow-heroes.com'; }
+function pwField(inputId, placeholder) {
+  return `
+    <div class="pw-wrap">
+      <input type="password" id="${inputId}" placeholder="${placeholder}" class="pw-input"
+        onkeydown="if(event.key==='Enter') event.target.closest('form,div')?.querySelector('.btn-primary')?.click()">
+      <button type="button" class="pw-eye" data-visible="false"
+        onclick="window.togglePwVisibility('${inputId}',this)" tabindex="-1" aria-label="Passwort anzeigen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+          <line class="eye-slash" x1="2" y1="2" x2="22" y2="22"/>
+        </svg>
+      </button>
+    </div>`;
+}
 function now() { return new Date(); }
 function minutesFromNow(m) { return new Date(Date.now() + m * 60000); }
 function animateReviewBtn() {
@@ -149,11 +165,15 @@ function render() { document.getElementById('app').innerHTML = buildApp(); attac
 
 // ========== AUTH ==========
 async function init() {
+  const isInviteLink = window.location.hash.includes('type=invite');
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
-    await loadProfile(session.user);
-  } else {
-    await loadTeachers();
+    if (isInviteLink) {
+      state.user = session.user;
+      state.view = 'set-password';
+    } else {
+      await loadProfile(session.user);
+    }
   }
   render();
 }
@@ -180,22 +200,10 @@ async function loadTeachers() {
   state.teachers = data || [];
 }
 
-async function register(email, password, name, teacherId) {
-  if (!teacherId) { showToast('Bitte wähle deinen Lehrer aus.', 'error'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name: name } } });
-  if (error) { showToast('Fehler: ' + error.message, 'error'); return; }
-  // Lehrer zuweisen (kurz warten bis Trigger das Profil erstellt hat)
-  if (data.user) {
-    await new Promise(r => setTimeout(r, 1000));
-    await sb.from('profiles').update({ teacher_id: teacherId }).eq('id', data.user.id);
-  }
-  showToast('Konto erstellt! Du kannst dich jetzt einloggen.', 'success');
-}
 
 async function logout() {
   await sb.auth.signOut();
   state = { ...state, user: null, profile: null, view: 'login', session: null, currentCard: null };
-  await loadTeachers();
   render();
 }
 
@@ -731,13 +739,15 @@ async function loadStats(studentId) {
 
 // ========== BUILD HTML ==========
 const MODULES = [
-  { id: 'vocab',    icon: '📚', label: 'Vokabeltrainer' },
-  { id: 'homework', icon: '📝', label: 'Hausaufgaben' },
-  { id: 'lessons',  icon: '🗒️', label: 'Unterricht' },
+  { id: 'vocab',      icon: '📚', label: 'Vokabeltrainer' },
+  { id: 'homework',   icon: '📝', label: 'Hausaufgaben' },
+  { id: 'lessons',    icon: '🗒️', label: 'Unterricht' },
+  { id: 'superadmin', icon: '⚙️', label: 'Verwaltung' },
 ];
 
 function buildApp() {
   if (state.view === 'login') return buildLogin();
+  if (state.view === 'set-password') return buildSetPassword();
 
   const isAdmin = state.profile?.is_admin;
 
@@ -774,10 +784,11 @@ function buildApp() {
       </div>
     </div>`;
 
+  const visibleModules = MODULES.filter(m => m.id !== 'superadmin' || isSuperAdmin());
   const moduleBar = `
     <div class="module-bar">
       <div class="module-tabs">
-        ${MODULES.map(m => `
+        ${visibleModules.map(m => `
           <button class="module-tab ${state.activeModule === m.id ? 'active' : ''} ${m.comingSoon ? 'coming-soon' : ''}"
             onclick="switchModule('${m.id}')">
             ${m.icon} ${m.label}
@@ -807,50 +818,74 @@ function buildLogin() {
       </div>
       <div class="login-box">
         <h1 class="login-title">Willkommen 👋</h1>
-        <p class="login-sub">Melde dich an oder erstelle ein Konto</p>
-        <div class="tabs">
-          <button class="tab active" id="tab-login" onclick="switchLoginTab('login')">Anmelden</button>
-          <button class="tab" id="tab-register" onclick="switchLoginTab('register')">Registrieren</button>
+        <p class="login-sub">Melde dich mit deinen Zugangsdaten an.</p>
+        <div class="form-group">
+          <label>E-Mail</label>
+          <input type="email" id="login-email" placeholder="name@example.com"
+            onkeydown="if(event.key==='Enter') document.getElementById('login-password')?.focus()">
         </div>
-        <div id="login-form">
-          <div class="form-group">
-            <label>E-Mail</label>
-            <input type="email" id="login-email" placeholder="name@example.com">
-          </div>
-          <div class="form-group">
-            <label>Passwort</label>
-            <input type="password" id="login-password" placeholder="••••••••">
-          </div>
-          <button class="btn btn-primary" style="width:100%" onclick="handleLogin()">Einloggen →</button>
+        <div class="form-group">
+          <label>Passwort</label>
+          ${pwField('login-password', '••••••••')}
         </div>
-        <div id="register-form" class="hidden">
-          <div class="form-group">
-            <label>Name</label>
-            <input type="text" id="reg-name" placeholder="Dein Name">
-          </div>
-          <div class="form-group">
-            <label>E-Mail</label>
-            <input type="email" id="reg-email" placeholder="name@example.com">
-          </div>
-          <div class="form-group">
-            <label>Passwort</label>
-            <input type="password" id="reg-password" placeholder="Mindestens 6 Zeichen">
-          </div>
-          <div class="form-group">
-            <label>Mein Lehrer</label>
-            <select id="reg-teacher" ${state.teachers.length === 0 ? 'disabled' : ''}>
-              ${state.teachers.length === 0
-                ? '<option value="">⚠ Keine Lehrer gefunden – RLS Policy fehlt</option>'
-                : '<option value="">— Lehrer wählen —</option>' + state.teachers.map(t => `<option value="${t.id}">${t.full_name}</option>`).join('')
-              }
-            </select>
-            ${state.teachers.length === 0 ? `<small style="color:var(--danger)">Lehrer können nicht geladen werden. <a href="#" onclick="reloadTeachers(); return false;">Erneut versuchen</a></small>` : ''}
-          </div>
-          <button class="btn btn-primary" style="width:100%" onclick="handleRegister()">Konto erstellen →</button>
-        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="handleLogin()">Einloggen →</button>
       </div>
     </div>
   </div>`;
+}
+
+function buildSetPassword() {
+  return `
+  <div id="login-view">
+    <div class="login-wrap">
+      <div class="login-hero">
+        <h1 class="login-hero-title">Konto einrichten</h1>
+        <p class="login-hero-sub">Du wurdest eingeladen. Wähle ein Passwort, um dein Konto zu aktivieren.</p>
+      </div>
+      <div class="login-box">
+        <h1 class="login-title">Passwort festlegen</h1>
+        <p class="login-sub">Wähle ein sicheres Passwort für dein neues Konto.</p>
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="set-pw-name" placeholder="Dein vollständiger Name">
+        </div>
+        <div class="form-group">
+          <label>Passwort</label>
+          ${pwField('set-pw-password', 'Mindestens 6 Zeichen')}
+        </div>
+        <div class="form-group">
+          <label>Passwort bestätigen</label>
+          ${pwField('set-pw-confirm', 'Passwort wiederholen')}
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="handleSetPassword()">Konto aktivieren →</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildSuperAdmin() {
+  return `
+    <h1 class="section-title">Verwaltung</h1>
+    <p class="section-sub">Einladungen verschicken und Konten verwalten</p>
+    <div class="card" style="max-width:480px">
+      <h2 style="font-size:16px;font-weight:700;margin-bottom:16px">Neue Person einladen</h2>
+      <div class="form-group">
+        <label>E-Mail-Adresse</label>
+        <input type="email" id="invite-email" placeholder="name@example.com">
+      </div>
+      <div class="form-group">
+        <label>Rolle</label>
+        <div style="display:flex;gap:12px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500">
+            <input type="radio" name="invite-role" value="student" checked> Schüler
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500">
+            <input type="radio" name="invite-role" value="teacher"> Lehrer
+          </label>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="handleSendInvite()" style="margin-top:4px">Einladung senden →</button>
+    </div>`;
 }
 
 function buildStudent() {
@@ -1241,6 +1276,7 @@ function buildLearnView() {
 function buildAdmin() {
   if (state.activeModule === 'homework') return buildHomework();
   if (state.activeModule === 'lessons') return buildLessons();
+  if (state.activeModule === 'superadmin') return buildSuperAdmin();
   if (state.statsData) return buildStatsView();
   if (state.adminTab === 'vocab') return buildVocabAdmin();
   return buildStudentsAdmin();
@@ -1561,28 +1597,51 @@ window.handleLogin = async () => {
   await login(email, pw);
 };
 
-window.handleRegister = async () => {
-  const name = el('reg-name')?.value;
-  const email = el('reg-email')?.value;
-  const pw = el('reg-password')?.value;
-  const teacherId = el('reg-teacher')?.value;
-  if (!name || !email || !pw) { showToast('Bitte alle Felder ausfüllen', 'error'); return; }
-  await register(email, pw, name, teacherId);
+window.togglePwVisibility = (inputId, btn) => {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const nowVisible = input.type === 'text';
+  input.type = nowVisible ? 'password' : 'text';
+  btn.dataset.visible = (!nowVisible).toString();
 };
 
-window.reloadTeachers = async () => {
-  await loadTeachers();
+window.handleSetPassword = async () => {
+  const name = el('set-pw-name')?.value?.trim();
+  const pw = el('set-pw-password')?.value;
+  const confirm = el('set-pw-confirm')?.value;
+  if (!name) { showToast('Bitte gib deinen Namen ein.', 'error'); return; }
+  if (!pw || pw.length < 6) { showToast('Passwort muss mindestens 6 Zeichen haben.', 'error'); return; }
+  if (pw !== confirm) { showToast('Passwörter stimmen nicht überein.', 'error'); return; }
+  const { error } = await sb.auth.updateUser({ password: pw, data: { full_name: name } });
+  if (error) { showToast('Fehler: ' + error.message, 'error'); return; }
+  await sb.from('profiles').update({ full_name: name }).eq('id', state.user.id);
+  const { data: { session } } = await sb.auth.getSession();
+  await loadProfile(session.user);
+  showToast('Konto aktiviert! Willkommen.', 'success');
   render();
 };
 
-window.switchLoginTab = async (tab) => {
-  if (tab === 'register' && state.teachers.length === 0) {
-    await loadTeachers();
+window.handleSendInvite = async () => {
+  const email = el('invite-email')?.value?.trim();
+  const roleEl = document.querySelector('input[name="invite-role"]:checked');
+  const role = roleEl?.value || 'student';
+  if (!email) { showToast('Bitte E-Mail eingeben.', 'error'); return; }
+  const { data: { session } } = await sb.auth.getSession();
+  const token = session?.access_token;
+  if (!token) { showToast('Nicht eingeloggt.', 'error'); return; }
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ email, is_admin: role === 'teacher' })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Fehler');
+    showToast(`Einladung an ${email} gesendet!`, 'success');
+    el('invite-email').value = '';
+  } catch (e) {
+    showToast('Fehler: ' + e.message, 'error');
   }
-  el('login-form').classList.toggle('hidden', tab !== 'login');
-  el('register-form').classList.toggle('hidden', tab !== 'register');
-  el('tab-login').classList.toggle('active', tab === 'login');
-  el('tab-register').classList.toggle('active', tab === 'register');
 };
 
 window.logout = logout;

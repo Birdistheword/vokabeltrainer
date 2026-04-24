@@ -97,6 +97,22 @@
   }
   select option { background: var(--surface); }
 
+  /* PASSWORD FIELD WITH EYE TOGGLE */
+  .pw-wrap { position: relative; display: flex; align-items: center; }
+  .pw-wrap .pw-input { flex: 1; padding-right: 44px; }
+  .pw-eye {
+    position: absolute; right: 0; top: 0; bottom: 0;
+    width: 44px; display: flex; align-items: center; justify-content: center;
+    background: none; border: none; cursor: pointer;
+    color: var(--text3); transition: color 0.15s;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+  .pw-eye:hover { color: var(--text2); }
+  .pw-eye svg { width: 18px; height: 18px; display: block; }
+  .pw-eye .eye-slash { transition: opacity 0.15s; }
+  .pw-eye[data-visible="false"] .eye-slash { opacity: 0; }
+  .pw-eye[data-visible="true"] .eye-slash { opacity: 1; }
+
   /* CARDS */
   .card {
     background: var(--surface);
