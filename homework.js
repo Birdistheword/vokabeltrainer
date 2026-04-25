@@ -145,11 +145,11 @@ async function loadHomeworkResults(assignmentId) {
   let fullSubmission = null;
   if (submission) {
     const { data: responses } = await sb.from('exercise_responses')
-      .select('id, exercise_id, response, is_correct, teacher_correct').eq('submission_id', submission.id);
+      .select('id, exercise_id, response, is_correct, teacher_correct, teacher_corrections').eq('submission_id', submission.id);
     const answers = {}, corrections = {};
     (responses||[]).forEach(r => {
       answers[r.exercise_id] = r.response;
-      corrections[r.exercise_id] = { id: r.id, is_correct: r.is_correct, teacher_correct: r.teacher_correct };
+      corrections[r.exercise_id] = { id: r.id, is_correct: r.is_correct, teacher_correct: r.teacher_correct, teacher_corrections: r.teacher_corrections };
     });
     fullSubmission = { ...submission, answers, corrections };
   }
@@ -163,7 +163,12 @@ async function loadHomeworkResults(assignmentId) {
   state.hwCorrections = {};
   if (fullSubmission) {
     Object.entries(fullSubmission.corrections).forEach(([exId, c]) => {
-      state.hwCorrections[exId] = c.teacher_correct !== null ? c.teacher_correct : c.is_correct;
+      const saved = c.teacher_corrections;
+      state.hwCorrections[exId] = {
+        items: saved?.items || {},
+        editedAnswers: saved?.editedAnswers || {},
+        overall: (c.teacher_correct !== null && c.teacher_correct !== undefined) ? c.teacher_correct : null,
+      };
     });
   }
   render();
@@ -173,9 +178,20 @@ async function saveCorrections() {
   const assignmentId = state.hwViewResults;
   const corrections = state.hwCorrections || {};
   const responses = state.hwResults?.corrections || {};
-  for (const [exId, isCorrect] of Object.entries(corrections)) {
+  for (const [exId, corrData] of Object.entries(corrections)) {
     const resp = responses[exId];
-    if (resp?.id) await sb.from('exercise_responses').update({ teacher_correct: isCorrect }).eq('id', resp.id);
+    if (!resp?.id) continue;
+    const itemVals = Object.values(corrData.items || {});
+    let overall = corrData.overall;
+    if (itemVals.length > 0) {
+      const allTrue = itemVals.every(v => v === true);
+      const anyFalse = itemVals.some(v => v === false);
+      if (overall === null) overall = allTrue ? true : anyFalse ? false : null;
+    }
+    await sb.from('exercise_responses').update({
+      teacher_correct: overall,
+      teacher_corrections: { items: corrData.items || {}, editedAnswers: corrData.editedAnswers || {} },
+    }).eq('id', resp.id);
   }
   await sb.from('homework_assignments').update({ status: 'corrected' }).eq('id', assignmentId);
   showToast('Hausaufgaben korrigiert!', 'success');
@@ -611,6 +627,92 @@ function buildEditorBody(ex, idx) {
 
 // ========== TEACHER CORRECTION ==========
 
+function hwGetAutoItems(ex, exState) {
+  const items = {};
+  if (!exState) return items;
+  const ans = exState.answer;
+  if (ex.type==='type_in_gap'||ex.type==='drag_to_gap') {
+    for (const sent of (ex.content.sentences||[])) {
+      const sAns = ans?.[sent.id]||{};
+      const sentText = sent.parts.filter(p=>typeof p==='string').join('').trim().slice(0,40);
+      sent.parts.forEach((p,i)=>{
+        if (typeof p==='object'&&p.gap!==undefined) {
+          const key=`${sent.id}_${i}`, given=sAns[key]||'';
+          items[key]={ label:sentText||key, given:given||'—', autoCorrect:given.trim().toLowerCase()===p.gap.toLowerCase(), correctAnswer:p.gap };
+        }
+      });
+    }
+  } else if (ex.type==='word_ordering') {
+    for (const sent of (ex.content.sentences||[])) {
+      const key=`sent_${sent.id}`, placed=ans?.[sent.id]||[];
+      items[key]={ label:sent.correct.join(' '), given:placed.join(' ')||'—', autoCorrect:placed.map(w=>w.toLowerCase()).join(' ')===sent.correct.map(w=>w.toLowerCase()).join(' '), correctAnswer:sent.correct.join(' ') };
+    }
+  } else if (ex.type==='odd_one_out') {
+    for (const item of (ex.content.items||[])) {
+      const key=`item_${item.id}`, given=ans?.[item.id];
+      items[key]={ label:item.words.join(' · '), given:given||'—', autoCorrect:given===item.correct, correctAnswer:item.correct };
+    }
+  } else if (ex.type==='conjugation_table') {
+    for (const row of (ex.content.rows||[])) {
+      const key=`conj_${row.pronoun}`, given=ans?.[row.pronoun]||'';
+      items[key]={ label:row.pronoun, given:given||'—', autoCorrect:given.trim().toLowerCase()===row.answer.toLowerCase(), correctAnswer:row.answer };
+    }
+  } else if (ex.type==='error_correction') {
+    for (const sent of (ex.content.sentences||[])) {
+      const key=`ec_${sent.id}`, given=ans?.[sent.id]||'';
+      items[key]={ label:sent.text, given:given||'—', autoCorrect:given.trim().toLowerCase()===sent.answer.trim().toLowerCase(), correctAnswer:sent.answer, editable:true };
+    }
+  } else if (ex.type==='sentence_transformation') {
+    for (const sent of (ex.content.sentences||[])) {
+      const key=`st_${sent.id}`, given=ans?.[sent.id]||'';
+      items[key]={ label:sent.original, given:given||'—', autoCorrect:given.trim().toLowerCase()===sent.answer.trim().toLowerCase(), correctAnswer:sent.answer, editable:true };
+    }
+  } else if (ex.type==='mini_dialogue') {
+    (ex.content.turns||[]).forEach((turn,i)=>{
+      if (turn.speaker==='student') {
+        const key=`dial_${i}`, given=ans?.[i]||'';
+        items[key]={ label:turn.hint||`Zeile ${i+1}`, given:given||'—', autoCorrect:null };
+      }
+    });
+  } else if (ex.type==='word_association') {
+    const count=ex.content.count||5;
+    for (let i=0;i<count;i++) {
+      const key=`wa_${i}`, given=ans?.[i]||'';
+      items[key]={ label:`Wort ${i+1}`, given:given||'—', autoCorrect:null };
+    }
+  } else if (ex.type==='vocab_session') {
+    items['vs']={ label:'Vokabeln gelernt', given:exState.done?'✓':'—', autoCorrect:exState.done?true:null };
+  }
+  return items;
+}
+
+function buildCorrectionItemRow(exId, key, item, decision, editedAnswer) {
+  const decColor = decision===true?'var(--green)':decision===false?'var(--red)':'var(--border)';
+  const autoLabel = item.autoCorrect===true?'✓ auto':item.autoCorrect===false?'✗ auto':'';
+  const autoColor = item.autoCorrect===true?'var(--green)':item.autoCorrect===false?'var(--red)':'var(--text3)';
+  return `<div style="padding:10px 12px;border:1.5px solid ${decision===null||decision===undefined?'var(--border)':decColor};border-radius:8px;background:${decision===true?'rgba(34,192,107,0.04)':decision===false?'rgba(240,74,90,0.04)':'var(--surface2)'}">
+    <div style="display:flex;align-items:flex-start;gap:10px">
+      <div style="flex:1;min-width:0">
+        ${item.label?`<div style="font-size:11px;color:var(--text2);margin-bottom:3px">${escHtml(item.label)}</div>`:''}
+        <div style="font-size:14px;font-weight:600;color:var(--text)">${escHtml(item.given)}</div>
+        ${autoLabel?`<div style="font-size:11px;color:${autoColor};margin-top:2px">${autoLabel}${item.correctAnswer&&item.autoCorrect===false?` · Erwartet: ${escHtml(item.correctAnswer)}`:''}</div>`:''}
+        ${item.editable?`<div style="margin-top:8px">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:3px">Akzeptierte Antwort:</div>
+          <input type="text" value="${escHtml(editedAnswer||item.correctAnswer||'')}"
+            style="width:100%;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);font-family:inherit;box-sizing:border-box"
+            oninput="hwEditAnswer('${exId}','${key}',this.value,true)" onblur="render()">
+        </div>`:''}
+      </div>
+      <div style="display:flex;gap:4px;flex-shrink:0;margin-top:2px">
+        <button onclick="hwToggleItem('${exId}','${key}',true)"
+          style="width:34px;height:34px;border-radius:6px;font-size:14px;font-weight:700;border:2px solid ${decision===true?'var(--green)':'var(--border)'};background:${decision===true?'rgba(34,192,107,0.15)':'transparent'};color:${decision===true?'var(--green)':'var(--text2)'};cursor:pointer">✓</button>
+        <button onclick="hwToggleItem('${exId}','${key}',false)"
+          style="width:34px;height:34px;border-radius:6px;font-size:14px;font-weight:700;border:2px solid ${decision===false?'var(--red)':'var(--border)'};background:${decision===false?'rgba(240,74,90,0.12)':'transparent'};color:${decision===false?'var(--red)':'var(--text2)'};cursor:pointer">✗</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function buildHomeworkTeacherCorrect() {
   const assignmentId = state.hwViewResults;
   const assignment = state.hwAssignments.find(a=>a.id===assignmentId);
@@ -629,39 +731,46 @@ function buildHomeworkTeacherCorrect() {
         <h3>Noch nicht eingereicht</h3>
         <p class="text-muted text-sm">Der Schüler hat die Hausaufgaben noch nicht abgeschlossen.</p>
       </div>`
-    : `
-      ${(assignment.exercises||[]).map((ex,i)=>{
+    : `${(assignment.exercises||[]).map((ex,i)=>{
         const exState = submission.answers?.[ex.id];
-        const corrItem = submission.corrections?.[ex.id];
-        const overrideVal = corrections.hasOwnProperty(ex.id) ? corrections[ex.id] : (corrItem?.teacher_correct !== null && corrItem?.teacher_correct !== undefined ? corrItem.teacher_correct : corrItem?.is_correct);
-        const isAutoGraded = hwExTypeAutoGraded(ex.type);
-        const hasResponse = !!exState;
-        return `<div class="card mb-3" style="border-top:3px solid ${hwExTypeColor(ex.type)}">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        const corrData = corrections[ex.id]||{ items:{}, editedAnswers:{}, overall:null };
+        const autoItems = exState ? hwGetAutoItems(ex, exState) : {};
+        const itemEntries = Object.entries(autoItems);
+        const decidedVals = Object.values(corrData.items||{});
+        const allTrue = decidedVals.length>0 && decidedVals.every(v=>v===true);
+        const anyFalse = decidedVals.some(v=>v===false);
+        const computedOverall = decidedVals.length===itemEntries.length && itemEntries.length>0 ? (allTrue?true:anyFalse?false:null) : null;
+        const displayOverall = corrData.overall!==null ? corrData.overall : computedOverall;
+        const borderColor = displayOverall===true?'var(--green)':displayOverall===false?'var(--red)':hwExTypeColor(ex.type);
+        return `<div class="card mb-3" style="border-top:3px solid ${borderColor}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-size:15px">${hwExTypeIcon(ex.type)}</span>
               <span style="font-size:11px;font-weight:800;color:${hwExTypeColor(ex.type)};text-transform:uppercase;letter-spacing:0.5px">Aufgabe ${i+1} · ${hwExTypeName(ex.type)}</span>
-              ${isAutoGraded && corrItem?.is_correct !== null && corrItem?.is_correct !== undefined
-                ? `<span style="font-size:11px;color:var(--text2);background:var(--surface2);padding:2px 8px;border-radius:20px">Auto: ${corrItem.is_correct?'✓':'✗'}</span>` : ''}
             </div>
-            ${hasResponse ? `<div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:12px;color:var(--text2)">Korrektur:</span>
-              <button onclick="hwToggleCorrection('${ex.id}', true)"
-                style="padding:4px 12px;border-radius:6px;font-size:13px;font-weight:700;border:2px solid ${overrideVal===true?'var(--green)':'var(--border)'};background:${overrideVal===true?'rgba(34,192,107,0.12)':'transparent'};color:${overrideVal===true?'var(--green)':'var(--text2)'};cursor:pointer">✓</button>
-              <button onclick="hwToggleCorrection('${ex.id}', false)"
-                style="padding:4px 12px;border-radius:6px;font-size:13px;font-weight:700;border:2px solid ${overrideVal===false?'var(--red)':'var(--border)'};background:${overrideVal===false?'rgba(240,74,90,0.1)':'transparent'};color:${overrideVal===false?'var(--red)':'var(--text2)'};cursor:pointer">✗</button>
-            </div>` : ''}
+            <div style="display:flex;align-items:center;gap:6px">
+              ${exState&&itemEntries.length>0?`<button onclick="hwApproveAll('${ex.id}')"
+                style="padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;border:1.5px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer">Approve All</button>`:''}
+              <span style="font-size:12px;color:var(--text2)">Gesamt:</span>
+              <button onclick="hwToggleOverall('${ex.id}',true)"
+                style="width:34px;height:28px;border-radius:6px;font-size:13px;font-weight:700;border:2px solid ${displayOverall===true?'var(--green)':'var(--border)'};background:${displayOverall===true?'rgba(34,192,107,0.12)':'transparent'};color:${displayOverall===true?'var(--green)':'var(--text2)'};cursor:pointer">✓</button>
+              <button onclick="hwToggleOverall('${ex.id}',false)"
+                style="width:34px;height:28px;border-radius:6px;font-size:13px;font-weight:700;border:2px solid ${displayOverall===false?'var(--red)':'var(--border)'};background:${displayOverall===false?'rgba(240,74,90,0.1)':'transparent'};color:${displayOverall===false?'var(--red)':'var(--text2)'};cursor:pointer">✗</button>
+            </div>
           </div>
-          <div style="font-weight:600;margin-bottom:12px;color:var(--text)">${escHtml(ex.instruction)}</div>
-          ${!hasResponse ? `<p class="text-muted text-sm">Keine Antwort abgegeben.</p>` : buildExerciseResultsView(ex, exState)}
+          <div style="font-weight:600;margin-bottom:12px;color:var(--text);font-size:14px">${escHtml(ex.instruction)}</div>
+          ${!exState ? `<p class="text-muted text-sm">Keine Antwort abgegeben.</p>` :
+            itemEntries.length===0 ? `<p class="text-muted text-sm">Keine Einträge.</p>` :
+            `<div style="display:flex;flex-direction:column;gap:6px">
+              ${itemEntries.map(([key,item])=>buildCorrectionItemRow(ex.id,key,item,corrData.items.hasOwnProperty(key)?corrData.items[key]:null,corrData.editedAnswers?.[key])).join('')}
+            </div>`}
         </div>`;
       }).join('')}
       <div style="padding:20px 0">
         <button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px" onclick="hwSaveCorrections()">
           ✓ Als korrigiert markieren & speichern
         </button>
-      </div>
-    `}
+      </div>`}
   </div>`;
 }
 
@@ -1243,7 +1352,35 @@ window.hwRefresh=async()=>{ await loadHomework(); render(); };
 window.hwStudentViewBtn=(studentId)=>{state.hwStudentView=studentId;render();};
 window.hwStudentViewBack=()=>{state.hwStudentView=null;render();};
 window.hwSaveCorrections=saveCorrections;
-window.hwToggleCorrection=(exId,value)=>{ if(!state.hwCorrections)state.hwCorrections={}; state.hwCorrections[exId]=value; render(); };
+window.hwToggleItem=(exId,key,val)=>{
+  if(!state.hwCorrections[exId]) state.hwCorrections[exId]={items:{},editedAnswers:{},overall:null};
+  state.hwCorrections[exId].items[key]=val;
+  // auto-compute overall from items
+  const vals=Object.values(state.hwCorrections[exId].items);
+  if(vals.length>0) state.hwCorrections[exId].overall=vals.every(v=>v===true)?true:vals.some(v=>v===false)?false:null;
+  render();
+};
+window.hwToggleOverall=(exId,val)=>{
+  if(!state.hwCorrections[exId]) state.hwCorrections[exId]={items:{},editedAnswers:{},overall:null};
+  state.hwCorrections[exId].overall=val; render();
+};
+window.hwApproveAll=(exId)=>{
+  const assignment=state.hwAssignments.find(a=>a.id===state.hwViewResults);
+  const ex=assignment?.exercises?.find(e=>e.id===exId);
+  const exState=state.hwResults?.answers?.[exId];
+  if(!ex||!exState) return;
+  const autoItems=hwGetAutoItems(ex,exState);
+  if(!state.hwCorrections[exId]) state.hwCorrections[exId]={items:{},editedAnswers:{},overall:null};
+  for(const[key,item] of Object.entries(autoItems)) state.hwCorrections[exId].items[key]=item.autoCorrect!==null?item.autoCorrect:true;
+  const vals=Object.values(state.hwCorrections[exId].items);
+  state.hwCorrections[exId].overall=vals.every(v=>v===true)?true:false;
+  render();
+};
+window.hwEditAnswer=(exId,key,val,silent)=>{
+  if(!state.hwCorrections[exId]) state.hwCorrections[exId]={items:{},editedAnswers:{},overall:null};
+  state.hwCorrections[exId].editedAnswers[key]=val;
+  if(!silent) render();
+};
 
 // Slot management
 window.hwAddSlot=()=>{ state.hwExerciseSlots.push({type:'type_in_gap',grammarFocus:'',theme:'',vocabSource:'recent_30d',count:4,customInstruction:'',setId:null,setName:null}); render(); };
