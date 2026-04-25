@@ -64,6 +64,10 @@ let state = {
   hwResults: null,
   hwStudentView: null,
   hwSubmissions: {},
+  hwExerciseSlots: [],
+  hwEditIdx: null,
+  hwCorrections: {},
+  hwStudentResultView: false,
   // Sentence generation
   sentenceGenProgress: null, // { done, total, status }
   // Personal vocab (student view)
