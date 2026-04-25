@@ -240,7 +240,9 @@ function buildHomeworkTeacher() {
   }
   if (!students.length) return `<div class="page-header"><div><div class="page-title">Hausaufgaben</div><div class="page-sub">Aufgaben erstellen und Abgaben einsehen</div></div></div><div class="card" style="text-align:center;padding:56px"><div style="font-size:40px;margin-bottom:12px">👥</div><p style="color:var(--text2)">Noch keine Schüler vorhanden.</p></div>`;
   const COLS = '1fr 90px 90px 90px 180px';
-  return `<div class="page-header"><div><div class="page-title">Hausaufgaben</div><div class="page-sub">Aufgaben erstellen und Abgaben einsehen</div></div></div>
+  return `<div class="page-header"><div><div class="page-title">Hausaufgaben</div><div class="page-sub">Aufgaben erstellen und Abgaben einsehen</div></div>
+    <button class="btn btn-ghost btn-sm" onclick="hwRefresh()" style="display:flex;align-items:center;gap:6px">↻ Aktualisieren</button>
+  </div>
   <div class="l-table">
     <div class="l-thead" style="grid-template-columns:${COLS}"><div class="l-th">Schüler</div><div class="l-th" style="text-align:center">Offen</div><div class="l-th" style="text-align:center">Eingereicht</div><div class="l-th" style="text-align:center">Korrigiert</div><div class="l-th"></div></div>
     ${students.map((s,i)=>{
@@ -1236,6 +1238,7 @@ window.hwRegenerateCreate=async()=>{ state.hwPreview=null; state.hwEditIdx=null;
 window.hwSave=saveHomework;
 window.hwViewResultsBtn=async(assignmentId)=>{ await loadHomeworkResults(assignmentId); };
 window.hwCloseResults=()=>{ state.hwViewResults=null; state.hwResults=null; state.hwCorrections={}; state.hwStudentResultView=false; render(); };
+window.hwRefresh=async()=>{ await loadHomework(); render(); };
 window.hwStudentViewBtn=(studentId)=>{state.hwStudentView=studentId;render();};
 window.hwStudentViewBack=()=>{state.hwStudentView=null;render();};
 window.hwSaveCorrections=saveCorrections;
