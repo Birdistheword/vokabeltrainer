@@ -188,12 +188,14 @@ async function saveCorrections() {
       const anyFalse = itemVals.some(v => v === false);
       if (overall === null) overall = allTrue ? true : anyFalse ? false : null;
     }
-    await sb.from('exercise_responses').update({
+    const { error: corrErr } = await sb.from('exercise_responses').update({
       teacher_correct: overall,
       teacher_corrections: { items: corrData.items || {}, editedAnswers: corrData.editedAnswers || {} },
     }).eq('id', resp.id);
+    if (corrErr) { showToast('Fehler beim Speichern (exercise_responses): ' + corrErr.message, 'error'); return; }
   }
-  await sb.from('homework_assignments').update({ status: 'corrected' }).eq('id', assignmentId);
+  const { error: statusErr } = await sb.from('homework_assignments').update({ status: 'corrected' }).eq('id', assignmentId);
+  if (statusErr) { showToast('Fehler beim Status-Update: ' + statusErr.message, 'error'); return; }
   showToast('Hausaufgaben korrigiert!', 'success');
   state.hwViewResults = null; state.hwResults = null; state.hwCorrections = {};
   await loadHomework(); render();
