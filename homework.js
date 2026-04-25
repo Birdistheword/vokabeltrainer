@@ -132,7 +132,8 @@ async function submitHomework() {
     is_correct: exState[ex.id]?.feedback?.allCorrect ?? null,
   }));
   if (responseRows.length) await sb.from('exercise_responses').insert(responseRows);
-  await sb.from('homework_assignments').update({ status: 'submitted' }).eq('id', assignment.id);
+  const { error: statusError } = await sb.from('homework_assignments').update({ status: 'submitted' }).eq('id', assignment.id);
+  if (statusError) { showToast('Fehler beim Status-Update: ' + statusError.message, 'error'); return; }
   showToast('Hausaufgaben eingereicht!', 'success');
   state.hwActive.submission = { submitted_at: new Date().toISOString() };
   await loadHomework(); render();
