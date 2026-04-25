@@ -1,4 +1,5 @@
 // ========== LESSONS MODULE ==========
+import { sb, state, render, showToast, escHtml } from './app.js'
 
 async function loadLessons() {
   const isAdmin = state.profile?.is_admin;
@@ -463,10 +464,6 @@ function refreshAttachArea(sectionId) {
   if (!el || !section) return;
   const type = section.section_type;
   el.innerHTML = buildAttachArea(section, type, state.profile?.is_admin);
-}
-
-function escHtml(str) {
-  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ========== ACTIONS — NAVIGATION ==========
@@ -1113,3 +1110,5 @@ window.removeRecapRef = async (sectionId, idx) => {
   sec.recap_refs = recap_refs;
   refreshAttachArea(sectionId);
 };
+
+export { buildLessons, loadLessons, buildLessonSidebar, loadLessonNotifications, loadBlueprints }

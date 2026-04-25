@@ -1,9 +1,15 @@
-  // HIER DEINE SUPABASE ZUGANGSDATEN EINTRAGEN:
-  const SUPABASE_URL = 'https://caaujaknoenoswrxaqpa.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_7VrFnwHgcKDWAZU6ONnvrw_6Yx3neGM';
+import { createClient } from '@supabase/supabase-js'
+import { buildHomework, loadHomework } from './homework.js'
+import { buildLessons, loadLessons, buildLessonSidebar, loadLessonNotifications, loadBlueprints } from './lessons.js'
+import { buildVocabExercise } from './vocab_exercises.js'
 
-const { createClient } = supabase;
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+function escHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 // ========== STATE ==========
 let state = {
@@ -1948,3 +1954,5 @@ async function handleCSVFile(file) {
   }
   render();
 })();
+
+export { sb, state, render, showToast, escHtml, shuffle }

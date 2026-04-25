@@ -3,6 +3,7 @@
 // New words always use flashcards (handled in app.js).
 //
 // Types: multiple_choice | type_the_word | letter_unscramble | sentence_builder
+import { state, render, shuffle } from './app.js'
 
 // ========== STATE INITIALIZER ==========
 
@@ -426,3 +427,5 @@ window.exWordCheck = () => {
   exState.checked = true;
   render();
 };
+
+export { buildVocabExercise }

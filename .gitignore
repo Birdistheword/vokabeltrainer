@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local environment variables — NEVER commit these
+.env.local
+.env.*.local
+
+# OS / editor clutter
+.DS_Store
+Thumbs.db
+.vscode/

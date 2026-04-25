@@ -1,4 +1,5 @@
 // ========== HOMEWORK MODULE ==========
+import { sb, state, render, showToast, escHtml } from './app.js'
 
 let _hwDragExId = null;
 let _hwDragWord = null;
@@ -1490,3 +1491,5 @@ window.hwApplyEdit=(idx)=>{
   }
   state.hwEditIdx=null; render();
 };
+
+export { buildHomework, loadHomework }
