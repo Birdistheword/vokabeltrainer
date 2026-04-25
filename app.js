@@ -171,7 +171,7 @@ function showToast(msg, type = '') {
     setTimeout(() => t.remove(), 200);
   }, 3200);
 }
-function render() { document.getElementById('app').innerHTML = buildApp(); attachEvents(); }
+function render() { const _sy=window.scrollY; document.getElementById('app').innerHTML = buildApp(); attachEvents(); window.scrollTo(0,_sy); }
 
 // ========== AUTH ==========
 async function init() {
