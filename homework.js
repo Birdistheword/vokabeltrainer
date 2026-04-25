@@ -715,6 +715,65 @@ function buildCorrectionItemRow(exId, key, item, decision, editedAnswer) {
   </div>`;
 }
 
+// Count individual items (gaps/rows/sentences) across exercises for %-based scoring
+function hwItemStats(exercises, answers, corrections) {
+  let correct = 0, total = 0;
+  for (const ex of (exercises||[])) {
+    if (!hwExTypeAutoGraded(ex.type)) continue;
+    const exState = answers?.[ex.id];
+    const exTc = corrections?.[ex.id]?.teacher_corrections;
+    const tdFn = (key) => exTc?.items?.hasOwnProperty(key) ? exTc.items[key] : null;
+    if (ex.type==='type_in_gap'||ex.type==='drag_to_gap') {
+      for (const sent of ex.content.sentences||[]) {
+        (sent.parts||[]).forEach((p,i)=>{ if(typeof p!=='object')return;
+          const key=`${sent.id}_${i}`, given=exState?.answer?.[sent.id]?.[key]||'';
+          const dec=tdFn(key), ok=dec!==null?dec:given.trim().toLowerCase()===p.gap.toLowerCase();
+          total++; if(ok)correct++;
+        });
+      }
+    } else if (ex.type==='word_ordering') {
+      for (const sent of ex.content.sentences||[]) {
+        const placed=exState?.answer?.[sent.id]||[], dec=tdFn(`sent_${sent.id}`);
+        const ok=dec!==null?dec:placed.map(w=>w.toLowerCase()).join(' ')===sent.correct.map(w=>w.toLowerCase()).join(' ');
+        total++; if(ok)correct++;
+      }
+    } else if (ex.type==='odd_one_out') {
+      for (const item of ex.content.items||[]) {
+        const given=exState?.answer?.[item.id], dec=tdFn(`item_${item.id}`);
+        const ok=dec!==null?dec:given===item.correct; total++; if(ok)correct++;
+      }
+    } else if (ex.type==='conjugation_table') {
+      for (const row of ex.content.rows||[]) {
+        const given=exState?.answer?.[row.pronoun]||'', dec=tdFn(`conj_${row.pronoun}`);
+        const ok=dec!==null?dec:given.trim().toLowerCase()===row.answer.toLowerCase();
+        total++; if(ok)correct++;
+      }
+    } else if (ex.type==='error_correction') {
+      for (const sent of ex.content.sentences||[]) {
+        const given=exState?.answer?.[sent.id]||'', key=`ec_${sent.id}`;
+        const accepted=exTc?.editedAnswers?.[key]||sent.answer, dec=tdFn(key);
+        const ok=dec!==null?dec:given.trim().toLowerCase()===accepted.trim().toLowerCase();
+        total++; if(ok)correct++;
+      }
+    } else if (ex.type==='sentence_transformation') {
+      for (const sent of ex.content.sentences||[]) {
+        const given=exState?.answer?.[sent.id]||'', key=`st_${sent.id}`;
+        const accepted=exTc?.editedAnswers?.[key]||sent.answer, dec=tdFn(key);
+        const ok=dec!==null?dec:given.trim().toLowerCase()===accepted.trim().toLowerCase();
+        total++; if(ok)correct++;
+      }
+    }
+  }
+  return { correct, total };
+}
+
+function hwScoreColor(pct) {
+  if (pct <= 25) return '#ef4444';
+  if (pct <= 50) return '#f97316';
+  if (pct <= 75) return '#eab308';
+  return 'var(--green)';
+}
+
 function buildHomeworkTeacherCorrect() {
   const assignmentId = state.hwViewResults;
   const assignment = state.hwAssignments.find(a=>a.id===assignmentId);
@@ -738,27 +797,14 @@ function buildHomeworkTeacherCorrect() {
         const corrData = corrections[ex.id]||{ items:{}, editedAnswers:{}, overall:null };
         const autoItems = exState ? hwGetAutoItems(ex, exState) : {};
         const itemEntries = Object.entries(autoItems);
-        const decidedVals = Object.values(corrData.items||{});
-        const allTrue = decidedVals.length>0 && decidedVals.every(v=>v===true);
-        const anyFalse = decidedVals.some(v=>v===false);
-        const computedOverall = decidedVals.length===itemEntries.length && itemEntries.length>0 ? (allTrue?true:anyFalse?false:null) : null;
-        const displayOverall = corrData.overall!==null ? corrData.overall : computedOverall;
-        const borderColor = displayOverall===true?'var(--green)':displayOverall===false?'var(--red)':hwExTypeColor(ex.type);
-        return `<div class="card mb-3" style="border-top:3px solid ${borderColor}">
+        return `<div class="card mb-3" style="border-top:3px solid ${hwExTypeColor(ex.type)}">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-size:15px">${hwExTypeIcon(ex.type)}</span>
               <span style="font-size:11px;font-weight:800;color:${hwExTypeColor(ex.type)};text-transform:uppercase;letter-spacing:0.5px">Aufgabe ${i+1} · ${hwExTypeName(ex.type)}</span>
             </div>
-            <div style="display:flex;align-items:center;gap:6px">
-              ${exState&&itemEntries.length>0?`<button onclick="hwApproveAll('${ex.id}')"
-                style="padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;border:1.5px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer">Approve All</button>`:''}
-              <span style="font-size:12px;color:var(--text2)">Gesamt:</span>
-              <button onclick="hwToggleOverall('${ex.id}',true)"
-                style="width:34px;height:28px;border-radius:6px;font-size:13px;font-weight:700;border:2px solid ${displayOverall===true?'var(--green)':'var(--border)'};background:${displayOverall===true?'rgba(34,192,107,0.12)':'transparent'};color:${displayOverall===true?'var(--green)':'var(--text2)'};cursor:pointer">✓</button>
-              <button onclick="hwToggleOverall('${ex.id}',false)"
-                style="width:34px;height:28px;border-radius:6px;font-size:13px;font-weight:700;border:2px solid ${displayOverall===false?'var(--red)':'var(--border)'};background:${displayOverall===false?'rgba(240,74,90,0.1)':'transparent'};color:${displayOverall===false?'var(--red)':'var(--text2)'};cursor:pointer">✗</button>
-            </div>
+            ${exState&&itemEntries.length>0?`<button onclick="hwApproveAll('${ex.id}')"
+              style="padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;border:1.5px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer">Approve All</button>`:''}
           </div>
           <div style="font-weight:600;margin-bottom:12px;color:var(--text);font-size:14px">${escHtml(ex.instruction)}</div>
           ${!exState ? `<p class="text-muted text-sm">Keine Antwort abgegeben.</p>` :
@@ -784,22 +830,21 @@ function buildHomeworkStudentCorrectedResult() {
   const submission = state.hwResults;
   if (!assignment || !submission) return `<button class="btn btn-ghost" onclick="hwCloseResults()">← Zurück</button>`;
   const exercises = assignment.exercises||[];
-  let correct=0, total=0;
-  for (const ex of exercises) {
-    if (!hwExTypeAutoGraded(ex.type) && ex.type!=='vocab_session') continue;
-    const corrItem = submission.corrections?.[ex.id];
-    const finalResult = corrItem?.teacher_correct !== null && corrItem?.teacher_correct !== undefined ? corrItem.teacher_correct : corrItem?.is_correct;
-    if (finalResult !== null && finalResult !== undefined) { total++; if (finalResult) correct++; }
-  }
+  const { correct, total } = hwItemStats(exercises, submission.answers, submission.corrections);
+  const pct = total > 0 ? Math.round(correct / total * 100) : 0;
+  const scoreColor = hwScoreColor(pct);
   return `<div style="max-width:700px;margin:0 auto">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px">
       <button class="btn btn-ghost btn-sm" onclick="hwCloseResults()">← Zurück</button>
       <div><h1 class="section-title" style="margin:0">${escHtml(assignment.title)}</h1>
         <p class="text-muted text-sm">${new Date(assignment.created_at).toLocaleDateString('de-DE')} · Korrigiert</p></div>
     </div>
-    ${total>0?`<div class="card mb-3" style="text-align:center;padding:24px">
-      <div style="font-size:36px;font-weight:800;color:${correct/total>=0.8?'var(--green)':correct/total>=0.5?'var(--orange)':'var(--red)'}">${correct}/${total}</div>
-      <p class="text-muted text-sm" style="margin:4px 0 0">richtige Aufgaben</p>
+    ${total>0?`<div class="card mb-3" style="text-align:center;padding:32px 24px">
+      <div style="font-size:64px;font-weight:900;color:${scoreColor};line-height:1">${pct}%</div>
+      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;margin:16px auto 10px;max-width:260px">
+        <div style="height:100%;width:${pct}%;background:${scoreColor};border-radius:4px;transition:width 0.5s ease"></div>
+      </div>
+      <p class="text-muted text-sm" style="margin:0">${correct} von ${total} ${total===1?'Punkt':'Punkten'}</p>
     </div>`:''}
     ${submission.feedback?`<div class="card mb-3" style="background:rgba(34,192,107,0.05);border-left:3px solid var(--green)">
       <p style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text2);margin:0 0 6px">Kommentar der Lehrkraft</p>
@@ -808,16 +853,11 @@ function buildHomeworkStudentCorrectedResult() {
     ${exercises.map((ex,i)=>{
       const exState = submission.answers?.[ex.id];
       const corrItem = submission.corrections?.[ex.id];
-      const finalResult = corrItem?.teacher_correct !== null && corrItem?.teacher_correct !== undefined ? corrItem.teacher_correct : corrItem?.is_correct;
-      const isAutoGraded = hwExTypeAutoGraded(ex.type);
       const hasResponse = !!exState;
-      return `<div class="card mb-3" style="border-top:3px solid ${finalResult===true?'var(--green)':finalResult===false?'var(--red)':hwExTypeColor(ex.type)}">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:15px">${hwExTypeIcon(ex.type)}</span>
-            <span style="font-size:11px;font-weight:800;color:${hwExTypeColor(ex.type)};text-transform:uppercase;letter-spacing:0.5px">Aufgabe ${i+1} · ${hwExTypeName(ex.type)}</span>
-          </div>
-          ${finalResult===true?`<span style="color:var(--green);font-weight:700;font-size:14px">✓ Richtig</span>`:finalResult===false?`<span style="color:var(--red);font-weight:700;font-size:14px">✗ Falsch</span>`:`<span style="color:var(--text2);font-size:12px">— Keine Beurteilung</span>`}
+      return `<div class="card mb-3" style="border-top:3px solid ${hwExTypeColor(ex.type)}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:15px">${hwExTypeIcon(ex.type)}</span>
+          <span style="font-size:11px;font-weight:800;color:${hwExTypeColor(ex.type)};text-transform:uppercase;letter-spacing:0.5px">Aufgabe ${i+1} · ${hwExTypeName(ex.type)}</span>
         </div>
         <div style="font-weight:600;margin-bottom:12px;color:var(--text)">${escHtml(ex.instruction)}</div>
         ${!hasResponse?`<p class="text-muted text-sm">Keine Antwort abgegeben.</p>`:buildExerciseResultsView(ex,exState,corrItem?.teacher_corrections)}
