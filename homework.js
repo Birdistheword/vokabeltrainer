@@ -391,8 +391,13 @@ function buildHwSlotRow(slot, i) {
         ${allTypes.map(t=>`<option value="${t}" ${slot.type===t?'selected':''}>${hwExTypeIcon(t)} ${hwExTypeName(t)}</option>`).join('')}
       </select>
       ${!isVocabSession ? `
-        <input type="number" min="2" max="10" value="${slot.count||4}" style="width:56px;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface2);color:var(--text)"
-          onchange="hwUpdateSlot(${i},'count',parseInt(this.value))" title="Anzahl Sätze/Einträge">
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <input type="range" min="1" max="20" value="${slot.count||4}"
+            style="width:90px;accent-color:var(--accent);cursor:pointer"
+            oninput="hwUpdateSlot(${i},'count',parseInt(this.value),true);this.nextElementSibling.textContent=this.value"
+            onchange="hwUpdateSlot(${i},'count',parseInt(this.value))">
+          <span style="font-size:12px;font-weight:700;color:var(--accent);min-width:18px;text-align:center">${slot.count||4}</span>
+        </div>
       ` : ''}
       <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--red);opacity:0.7" onclick="hwRemoveSlot(${i})">✕</button>
     </div>
@@ -406,10 +411,10 @@ function buildHwSlotRow(slot, i) {
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <input type="text" value="${escHtml(slot.grammarFocus||'')}" placeholder="Grammatik (z.B. Perfekt mit sein)"
           style="flex:2;min-width:140px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface2);color:var(--text)"
-          oninput="hwUpdateSlot(${i},'grammarFocus',this.value)">
+          oninput="hwUpdateSlot(${i},'grammarFocus',this.value,true)" onblur="render()">
         <input type="text" value="${escHtml(slot.theme||'')}" placeholder="Thema (z.B. Restaurant)"
           style="flex:1;min-width:100px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface2);color:var(--text)"
-          oninput="hwUpdateSlot(${i},'theme',this.value)">
+          oninput="hwUpdateSlot(${i},'theme',this.value,true)" onblur="render()">
         <select style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface2);color:var(--text)"
           onchange="hwUpdateSlot(${i},'vocabSource',this.value)">
           <option value="recent_30d" ${slot.vocabSource==='recent_30d'?'selected':''}>Letzte 30 Tage</option>
@@ -1239,7 +1244,7 @@ window.hwToggleCorrection=(exId,value)=>{ if(!state.hwCorrections)state.hwCorrec
 // Slot management
 window.hwAddSlot=()=>{ state.hwExerciseSlots.push({type:'type_in_gap',grammarFocus:'',theme:'',vocabSource:'recent_30d',count:4,customInstruction:'',setId:null,setName:null}); render(); };
 window.hwRemoveSlot=(i)=>{ state.hwExerciseSlots.splice(i,1); render(); };
-window.hwUpdateSlot=(i,field,value)=>{ state.hwExerciseSlots[i][field]=value; render(); };
+window.hwUpdateSlot=(i,field,value,silent)=>{ state.hwExerciseSlots[i][field]=value; if(!silent) render(); };
 window.hwUpdateSlotVocab=(i,setId,setName)=>{ state.hwExerciseSlots[i].setId=setId; state.hwExerciseSlots[i].setName=setName.replace(/^[^–—-]*[–—-]\s*/,''); render(); };
 
 // Inline editor
