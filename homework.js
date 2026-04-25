@@ -818,7 +818,7 @@ function buildHomeworkStudentCorrectedResult() {
           ${finalResult===true?`<span style="color:var(--green);font-weight:700;font-size:14px">✓ Richtig</span>`:finalResult===false?`<span style="color:var(--red);font-weight:700;font-size:14px">✗ Falsch</span>`:`<span style="color:var(--text2);font-size:12px">— Keine Beurteilung</span>`}
         </div>
         <div style="font-weight:600;margin-bottom:12px;color:var(--text)">${escHtml(ex.instruction)}</div>
-        ${!hasResponse?`<p class="text-muted text-sm">Keine Antwort abgegeben.</p>`:buildExerciseResultsView(ex,exState)}
+        ${!hasResponse?`<p class="text-muted text-sm">Keine Antwort abgegeben.</p>`:buildExerciseResultsView(ex,exState,corrItem?.teacher_corrections)}
       </div>`;
     }).join('')}
   </div>`;
@@ -1101,7 +1101,12 @@ function buildVocabSession(ex, es, idx) {
 
 // ========== RESULTS VIEW (teacher + student post-correction) ==========
 
-function buildExerciseResultsView(ex, exState) {
+function buildExerciseResultsView(ex, exState, tc) {
+  // tc = teacher_corrections: { items: { [key]: bool }, editedAnswers: { [key]: string } }
+  // Use teacher decision if available, otherwise fall back to auto-grade
+  const td = (key) => tc?.items?.hasOwnProperty(key) ? tc.items[key] : null;
+  const ta = (key, fallback) => tc?.editedAnswers?.[key] || fallback;
+
   if (!exState) return `<p class="text-muted text-sm">Keine Antwort abgegeben.</p>`;
   if (ex.type==='type_in_gap'||ex.type==='drag_to_gap') {
     return ex.content.sentences.map(sent=>{
@@ -1109,15 +1114,19 @@ function buildExerciseResultsView(ex, exState) {
       return `<div style="margin-bottom:10px;padding:10px 14px;background:var(--surface2);border-radius:8px;line-height:2.5">
         ${sent.parts.map((p,i)=>{
           if(typeof p==='string') return `<span>${escHtml(p)}</span>`;
-          const key=`${sent.id}_${i}`, given=answers[key]||'—', correct=given.trim().toLowerCase()===p.gap.toLowerCase();
-          return `<span style="display:inline-flex;align-items:center;gap:4px;background:${correct?'rgba(34,192,107,0.15)':'rgba(240,74,90,0.1)'};border:1.5px solid ${correct?'var(--green)':'var(--red)'};border-radius:6px;padding:2px 10px;font-weight:700;color:${correct?'var(--green)':'var(--red)'};font-size:13px;margin:0 2px">${escHtml(given)}${!correct?` <span style="font-size:11px;opacity:0.7">(→ ${escHtml(p.gap)})</span>`:' ✓'}</span>`;
+          const key=`${sent.id}_${i}`, given=answers[key]||'—';
+          const teacherDec=td(key), correct=teacherDec!==null?teacherDec:given.trim().toLowerCase()===p.gap.toLowerCase();
+          const acceptedAnswer=ta(key,p.gap);
+          return `<span style="display:inline-flex;align-items:center;gap:4px;background:${correct?'rgba(34,192,107,0.15)':'rgba(240,74,90,0.1)'};border:1.5px solid ${correct?'var(--green)':'var(--red)'};border-radius:6px;padding:2px 10px;font-weight:700;color:${correct?'var(--green)':'var(--red)'};font-size:13px;margin:0 2px">${escHtml(given)}${!correct?` <span style="font-size:11px;opacity:0.7">(→ ${escHtml(acceptedAnswer)})</span>`:' ✓'}</span>`;
         }).join('')}
       </div>`;
     }).join('');
   }
   if (ex.type==='word_ordering') {
     return ex.content.sentences.map(sent=>{
-      const placed=exState.answer?.[sent.id]||[], correct=placed.map(w=>w.toLowerCase()).join(' ')===sent.correct.map(w=>w.toLowerCase()).join(' ');
+      const placed=exState.answer?.[sent.id]||[];
+      const key=`sent_${sent.id}`, teacherDec=td(key);
+      const correct=teacherDec!==null?teacherDec:placed.map(w=>w.toLowerCase()).join(' ')===sent.correct.map(w=>w.toLowerCase()).join(' ');
       return `<div style="padding:10px 14px;background:${correct?'rgba(34,192,107,0.08)':'rgba(240,74,90,0.05)'};border:1.5px solid ${correct?'var(--green)':'var(--red)'};border-radius:8px;margin-bottom:8px">
         <div style="font-weight:700;color:${correct?'var(--green)':'var(--red)'}">${escHtml(placed.join(' '))||'—'} ${correct?'✓':'✗'}</div>
         ${!correct?`<div style="font-size:12px;color:var(--text2);margin-top:4px">Richtig: ${escHtml(sent.correct.join(' '))}</div>`:''}
@@ -1126,7 +1135,9 @@ function buildExerciseResultsView(ex, exState) {
   }
   if (ex.type==='odd_one_out') {
     return ex.content.items.map(item=>{
-      const given=exState.answer?.[item.id], correct=given===item.correct;
+      const given=exState.answer?.[item.id];
+      const key=`item_${item.id}`, teacherDec=td(key);
+      const correct=teacherDec!==null?teacherDec:given===item.correct;
       return `<div style="margin-bottom:12px">
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           ${item.words.map(w=>`<span style="padding:5px 14px;border-radius:20px;font-size:13px;font-weight:700;
@@ -1141,7 +1152,9 @@ function buildExerciseResultsView(ex, exState) {
   if (ex.type==='conjugation_table') {
     return `<div style="max-width:320px">
       ${(ex.content.rows||[]).map(row=>{
-        const given=exState.answer?.[row.pronoun]||'—', correct=given.trim().toLowerCase()===row.answer.toLowerCase();
+        const given=exState.answer?.[row.pronoun]||'—';
+        const key=`conj_${row.pronoun}`, teacherDec=td(key);
+        const correct=teacherDec!==null?teacherDec:given.trim().toLowerCase()===row.answer.toLowerCase();
         return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
           <span style="font-weight:700;color:var(--text2);min-width:80px;font-size:13px">${escHtml(row.pronoun)}</span>
           <span style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:700;background:${correct?'rgba(34,192,107,0.12)':'rgba(240,74,90,0.08)'};border:1.5px solid ${correct?'var(--green)':'var(--red)'};color:${correct?'var(--green)':'var(--red)'}">${escHtml(given)} ${correct?'✓':'✗'}</span>
@@ -1152,43 +1165,54 @@ function buildExerciseResultsView(ex, exState) {
   }
   if (ex.type==='error_correction') {
     return (ex.content.sentences||[]).map(sent=>{
-      const given=exState.answer?.[sent.id]||'—', correct=given.trim().toLowerCase()===sent.answer.trim().toLowerCase();
+      const given=exState.answer?.[sent.id]||'—';
+      const key=`ec_${sent.id}`, teacherDec=td(key), acceptedAnswer=ta(key,sent.answer);
+      const correct=teacherDec!==null?teacherDec:given.trim().toLowerCase()===acceptedAnswer.trim().toLowerCase();
       return `<div style="margin-bottom:10px">
         <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Original: ${escHtml(sent.text)}</div>
         <div style="padding:8px 12px;border-radius:8px;background:${correct?'rgba(34,192,107,0.08)':'rgba(240,74,90,0.05)'};border:1.5px solid ${correct?'var(--green)':'var(--red)'};font-size:14px;font-weight:600;color:${correct?'var(--green)':'var(--red)'}">
           ${escHtml(given)} ${correct?'✓':'✗'}
         </div>
-        ${!correct?`<div style="font-size:12px;color:var(--text2);margin-top:4px">Richtig: ${escHtml(sent.answer)}</div>`:''}
+        ${!correct?`<div style="font-size:12px;color:var(--text2);margin-top:4px">Richtig: ${escHtml(acceptedAnswer)}</div>`:''}
       </div>`;
     }).join('');
   }
   if (ex.type==='sentence_transformation') {
     return (ex.content.sentences||[]).map(sent=>{
-      const given=exState.answer?.[sent.id]||'—', correct=given.trim().toLowerCase()===sent.answer.trim().toLowerCase();
+      const given=exState.answer?.[sent.id]||'—';
+      const key=`st_${sent.id}`, teacherDec=td(key), acceptedAnswer=ta(key,sent.answer);
+      const correct=teacherDec!==null?teacherDec:given.trim().toLowerCase()===acceptedAnswer.trim().toLowerCase();
       return `<div style="margin-bottom:10px">
         <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Original: ${escHtml(sent.original)}</div>
         <div style="padding:8px 12px;border-radius:8px;background:${correct?'rgba(34,192,107,0.08)':'rgba(240,74,90,0.05)'};border:1.5px solid ${correct?'var(--green)':'var(--red)'};font-size:14px;font-weight:600;color:${correct?'var(--green)':'var(--red)'}">
           ${escHtml(given)} ${correct?'✓':'✗'}
         </div>
-        ${!correct?`<div style="font-size:12px;color:var(--text2);margin-top:4px">Richtig: ${escHtml(sent.answer)}</div>`:''}
+        ${!correct?`<div style="font-size:12px;color:var(--text2);margin-top:4px">Richtig: ${escHtml(acceptedAnswer)}</div>`:''}
       </div>`;
     }).join('');
   }
   if (ex.type==='mini_dialogue') {
     const turns=ex.content.turns||[];
     return turns.filter(t=>t.speaker==='student').map((_,ti)=>{
-      const studentTurnIdx=turns.reduce((acc,t,i)=>{if(t.speaker==='student')acc.push(i);return acc;},[]);
-      const idx=studentTurnIdx[ti];
-      const given=exState.answer?.[idx]||'—';
-      return `<div style="padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:6px;font-size:14px">
+      const studentTurnIdxs=turns.reduce((acc,t,i)=>{if(t.speaker==='student')acc.push(i);return acc;},[]);
+      const idx=studentTurnIdxs[ti], given=exState.answer?.[idx]||'—';
+      const key=`dial_${idx}`, teacherDec=td(key);
+      const borderColor=teacherDec===true?'var(--green)':teacherDec===false?'var(--red)':'var(--border)';
+      return `<div style="padding:8px 12px;background:var(--surface2);border:1.5px solid ${borderColor};border-radius:8px;margin-bottom:6px;font-size:14px">
         <span style="font-size:11px;color:var(--text2)">Zeile ${ti+1}: </span>${escHtml(given)}
+        ${teacherDec===true?' <span style="color:var(--green);font-size:12px">✓</span>':teacherDec===false?' <span style="color:var(--red);font-size:12px">✗</span>':''}
       </div>`;
     }).join('');
   }
   if (ex.type==='word_association') {
-    const words=Object.values(exState.answer||{}).filter(Boolean);
-    return `<div style="display:flex;flex-wrap:wrap;gap:6px">
-      ${words.map(w=>`<span style="padding:5px 14px;border-radius:20px;font-size:13px;font-weight:700;background:var(--surface2);border:1.5px solid var(--border)">${escHtml(w)}</span>`).join('')}
+    const count=ex.content.count||5;
+    return `<div style="display:flex;flex-direction:column;gap:6px">
+      ${Array.from({length:count},(_,i)=>{
+        const given=exState.answer?.[i]||''; if(!given) return '';
+        const key=`wa_${i}`, teacherDec=td(key);
+        const borderColor=teacherDec===true?'var(--green)':teacherDec===false?'var(--red)':'var(--border)';
+        return `<span style="padding:5px 14px;border-radius:20px;font-size:13px;font-weight:700;background:var(--surface2);border:1.5px solid ${borderColor};display:inline-flex;align-items:center;gap:6px">${escHtml(given)}${teacherDec===true?' <span style="color:var(--green)">✓</span>':teacherDec===false?' <span style="color:var(--red)">✗</span>':''}</span>`;
+      }).join('')}
     </div>`;
   }
   if (ex.type==='vocab_session') {
@@ -1325,9 +1349,9 @@ window.hwOpenCorrectedResult=async(assignmentId)=>{
   if(assignment)assignment.exercises=exercises;
   const {data:submission}=await sb.from('homework_submissions').select('id,submitted_at,feedback').eq('assignment_id',assignmentId).eq('student_id',state.user.id).maybeSingle();
   if(!submission){showToast('Keine Einreichung gefunden.','error');return;}
-  const {data:responses}=await sb.from('exercise_responses').select('exercise_id,response,is_correct,teacher_correct').eq('submission_id',submission.id);
+  const {data:responses}=await sb.from('exercise_responses').select('exercise_id,response,is_correct,teacher_correct,teacher_corrections').eq('submission_id',submission.id);
   const answers={},corrections={};
-  (responses||[]).forEach(r=>{ answers[r.exercise_id]=r.response; corrections[r.exercise_id]={is_correct:r.is_correct,teacher_correct:r.teacher_correct}; });
+  (responses||[]).forEach(r=>{ answers[r.exercise_id]=r.response; corrections[r.exercise_id]={is_correct:r.is_correct,teacher_correct:r.teacher_correct,teacher_corrections:r.teacher_corrections}; });
   state.hwViewResults=assignmentId; state.hwResults={...submission,answers,corrections};
   state.hwStudentResultView=true;
   render();
