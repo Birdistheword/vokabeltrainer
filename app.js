@@ -31,6 +31,7 @@ let state = {
   selectedStudent: null,
   unlockedForStudent: [],
   allChaptersByLevel: {},
+  allSetsByLevel: {},
   // Vocab detail
   viewingVocab: null,
   // Vocab list
@@ -214,26 +215,28 @@ async function logout() {
 
 // ========== STUDENT: CHAPTERS ==========
 async function loadStudentChapters() {
-  const { data: unlocked } = await sb.from('unlocked_chapters')
-    .select('level, chapter')
-    .eq('student_id', state.user.id);
+  const [unlockedRes, setsRes, vocabCountRes] = await Promise.all([
+    sb.from('unlocked_sets').select('set_id').eq('student_id', state.user.id),
+    sb.from('learning_sets').select('id, name, level').order('level').order('name'),
+    sb.from('vocabulary').select('set_id'),
+  ]);
 
-  const { data: vocab } = await sb.from('vocabulary').select('level, chapter');
+  const unlockedSetIds = new Set((unlockedRes.data || []).map(u => u.set_id));
 
-  // Gruppe nach level/chapter
-  const chapters = {};
-  vocab?.forEach(v => {
-    const key = `${v.level}||${v.chapter}`;
-    if (!chapters[key]) chapters[key] = { level: v.level, chapter: v.chapter, count: 0 };
-    chapters[key].count++;
+  const countMap = {};
+  (vocabCountRes.data || []).forEach(v => {
+    countMap[v.set_id] = (countMap[v.set_id] || 0) + 1;
   });
 
-  const unlockedSet = new Set(unlocked?.map(u => `${u.level}||${u.chapter}`) || []);
-  state.studentChapters = Object.values(chapters).map(c => ({
-    ...c,
-    unlocked: unlockedSet.has(`${c.level}||${c.chapter}`)
+  const sets = setsRes.data || [];
+  state.studentChapters = sets.map(s => ({
+    id: s.id,
+    level: s.level,
+    chapter: s.name,
+    count: countMap[s.id] || 0,
+    unlocked: unlockedSetIds.has(s.id),
   }));
-  state.studentLevels = [...new Set(Object.values(chapters).map(c => c.level))].sort();
+  state.studentLevels = [...new Set(sets.map(s => s.level))].sort();
   if (!state.selectedLevel && state.studentLevels.length) {
     state.selectedLevel = state.studentLevels[0];
   }
@@ -243,7 +246,7 @@ async function loadStudentChapters() {
 async function loadLearnedVocab() {
   const [regularRes, personalRes] = await Promise.all([
     sb.from('srs_progress')
-      .select('*, vocabulary(german, english, level, chapter)')
+      .select('*, vocabulary(german, english, learning_sets(level, name))')
       .eq('student_id', state.user.id)
       .order('ease', { ascending: true }),
     sb.from('personal_vocab')
@@ -251,7 +254,16 @@ async function loadLearnedVocab() {
       .eq('student_id', state.user.id)
       .order('created_at', { ascending: false }),
   ]);
-  state.learnedVocab = (regularRes.data || []).filter(p => p.vocabulary);
+  state.learnedVocab = (regularRes.data || [])
+    .filter(p => p.vocabulary)
+    .map(p => ({
+      ...p,
+      vocabulary: {
+        ...p.vocabulary,
+        level:   p.vocabulary.learning_sets?.level,
+        chapter: p.vocabulary.learning_sets?.name,
+      },
+    }));
 
   const pvData = personalRes.data || [];
   if (pvData.length) {
@@ -282,13 +294,14 @@ async function loadProgressData() {
   ).size;
 
   const { data: srsData } = await sb.from('srs_progress')
-    .select('vocabulary(level, chapter)')
-    .eq('student_id', state.user.id);
+    .select('vocabulary(learning_sets(level, name))')
+    .eq('student_id', state.user.id)
+    .not('vocabulary_id', 'is', null);
 
   const learnedByChapter = {};
   (srsData || []).forEach(p => {
-    if (p.vocabulary) {
-      const key = `${p.vocabulary.level}||${p.vocabulary.chapter}`;
+    if (p.vocabulary?.learning_sets) {
+      const key = `${p.vocabulary.learning_sets.level}||${p.vocabulary.learning_sets.name}`;
       learnedByChapter[key] = (learnedByChapter[key] || 0) + 1;
     }
   });
@@ -300,12 +313,12 @@ async function loadProgressData() {
 // ========== STUDENT: DASHBOARD ==========
 async function loadDashboard() {
   try {
-    const { data: unlocked } = await sb.from('unlocked_chapters').select('level, chapter').eq('student_id', state.user.id);
-    if (!unlocked?.length) { state.dashboard = { dueCount: 0, newAvailable: 0, totalLearned: 0 }; render(); return; }
+    const { data: unlockedSets } = await sb.from('unlocked_sets').select('set_id').eq('student_id', state.user.id);
+    if (!unlockedSets?.length) { state.dashboard = { dueCount: 0, newAvailable: 0, totalLearned: 0 }; render(); return; }
 
-    const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
-    const { data: allVocab } = await sb.from('vocabulary').select('id, level, chapter');
-    const vocab = (allVocab || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
+    const unlockedSetIds = new Set(unlockedSets.map(u => u.set_id));
+    const { data: allVocab } = await sb.from('vocabulary').select('id, set_id');
+    const vocab = (allVocab || []).filter(v => unlockedSetIds.has(v.set_id));
     const vocabIds = new Set(vocab.map(v => v.id));
 
     // Alle Progress-Rows laden (Student hat nur eigene)
@@ -352,20 +365,20 @@ async function startSession(mode) {
   state.waitingUntil = null;
   state.exState = null;
 
-  const { data: unlocked } = await sb.from('unlocked_chapters')
-    .select('level, chapter')
+  const { data: unlockedSets } = await sb.from('unlocked_sets')
+    .select('set_id')
     .eq('student_id', state.user.id);
 
-  if (!unlocked || unlocked.length === 0) {
+  if (!unlockedSets || unlockedSets.length === 0) {
     showToast('Noch keine Kapitel freigeschaltet.', 'error');
     state.sessionActive = false;
     render();
     return;
   }
 
-  const unlockedSet = new Set(unlocked.map(u => `${u.level}||${u.chapter}`));
+  const unlockedSetIds = new Set(unlockedSets.map(u => u.set_id));
   const { data: allVocabData } = await sb.from('vocabulary').select('*');
-  const vocab = (allVocabData || []).filter(v => unlockedSet.has(`${v.level}||${v.chapter}`));
+  const vocab = (allVocabData || []).filter(v => unlockedSetIds.has(v.set_id));
 
   const { data: progress } = await sb.from('srs_progress')
     .select('*')
@@ -622,34 +635,48 @@ async function loadStudents() {
 }
 
 async function loadVocabMeta() {
-  const { data } = await sb.from('vocabulary').select('level, chapter');
+  const { data: sets } = await sb.from('learning_sets')
+    .select('id, name, level')
+    .order('level')
+    .order('name');
+
   const byLevel = {};
-  data?.forEach(v => {
-    if (!byLevel[v.level]) byLevel[v.level] = new Set();
-    byLevel[v.level].add(v.chapter);
+  const setsByLevel = {};
+  (sets || []).forEach(s => {
+    if (!byLevel[s.level])    byLevel[s.level]    = [];
+    if (!setsByLevel[s.level]) setsByLevel[s.level] = [];
+    byLevel[s.level].push(s.name);
+    setsByLevel[s.level].push(s);
   });
-  Object.keys(byLevel).forEach(l => {
-    byLevel[l] = [...byLevel[l]].sort((a, b) => {
-      const na = parseInt(a), nb = parseInt(b);
-      return isNaN(na) || isNaN(nb) ? a.localeCompare(b) : na - nb;
-    });
-  });
+
   state.allChaptersByLevel = byLevel;
-  state.vocabLevels = Object.keys(byLevel).sort();
+  state.allSetsByLevel     = setsByLevel;
+  state.vocabLevels        = Object.keys(byLevel).sort();
 }
 
 async function loadUnlockedForStudent(studentId) {
-  const { data } = await sb.from('unlocked_chapters')
-    .select('*').eq('student_id', studentId);
-  state.unlockedForStudent = data || [];
+  const { data } = await sb.from('unlocked_sets')
+    .select('*, learning_sets(level, name)')
+    .eq('student_id', studentId);
+  state.unlockedForStudent = (data || []).map(u => ({
+    ...u,
+    level:   u.learning_sets?.level,
+    chapter: u.learning_sets?.name,
+  }));
 }
 
 async function toggleChapterUnlock(studentId, level, chapter) {
+  const set = (state.allSetsByLevel[level] || []).find(s => s.name === chapter);
+  if (!set) return;
   const exists = state.unlockedForStudent.find(u => u.level === level && u.chapter === chapter);
   if (exists) {
-    await sb.from('unlocked_chapters').delete().eq('id', exists.id);
+    await sb.from('unlocked_sets').delete().eq('id', exists.id);
   } else {
-    await sb.from('unlocked_chapters').insert({ student_id: studentId, level, chapter });
+    await sb.from('unlocked_sets').insert({
+      student_id:  studentId,
+      set_id:      set.id,
+      unlocked_by: state.user.id,
+    });
   }
   await loadUnlockedForStudent(studentId);
   render();
@@ -659,11 +686,39 @@ async function uploadCSV(file, level) {
   const text = await file.text();
   const lines = text.split('\n').filter(l => l.trim());
   // CSV format: Kapitel,Kategorie,Deutsch,Englisch
-  const rows = lines.slice(1).map(line => {
+  const parsed = lines.slice(1).map(line => {
     const parts = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
-    return { level, chapter: parts[0], german: parts[2], english: parts[3] };
+    return { chapter: parts[0], german: parts[2], english: parts[3] };
   }).filter(r => r.chapter && r.german && r.english);
 
+  if (!parsed.length) { showToast('Keine gültigen Zeilen gefunden.', 'error'); return; }
+
+  // Ensure the Default source exists
+  let { data: source } = await sb.from('vocabulary_sources').select('id').eq('name', 'Default').maybeSingle();
+  if (!source) {
+    const { data: newSource, error: srcErr } = await sb.from('vocabulary_sources')
+      .insert({ name: 'Default', type: 'custom' }).select().single();
+    if (srcErr) { showToast('Fehler: ' + srcErr.message, 'error'); return; }
+    source = newSource;
+  }
+
+  // Find or create a learning_set for each unique chapter in this level
+  const chapterNames = [...new Set(parsed.map(r => r.chapter))];
+  const setMap = {};
+  for (const chapter of chapterNames) {
+    let { data: existing } = await sb.from('learning_sets')
+      .select('id').eq('level', level).eq('name', chapter).maybeSingle();
+    if (!existing) {
+      const { data: newSet, error: setErr } = await sb.from('learning_sets')
+        .insert({ source_id: source.id, name: chapter, level, created_by: state.user.id })
+        .select().single();
+      if (setErr) { showToast('Fehler: ' + setErr.message, 'error'); return; }
+      existing = newSet;
+    }
+    setMap[chapter] = existing.id;
+  }
+
+  const rows = parsed.map(r => ({ set_id: setMap[r.chapter], german: r.german, english: r.english }));
   const { error } = await sb.from('vocabulary').insert(rows);
   if (error) { showToast('Fehler beim Import: ' + error.message, 'error'); return; }
   showToast(`${rows.length} Vokabeln importiert!`, 'success');
@@ -676,12 +731,19 @@ async function loadStats(studentId) {
 
   const [sessions, reviews, progress] = await Promise.all([
     sb.from('learning_sessions').select('*').eq('student_id', studentId).order('started_at', { ascending: false }).limit(20),
-    sb.from('reviews').select('*, vocabulary(id, german, english, level, chapter)').eq('student_id', studentId).order('created_at', { ascending: false }).limit(2000),
+    sb.from('reviews').select('*, vocabulary(id, german, english, learning_sets(level, name))').eq('student_id', studentId).order('created_at', { ascending: false }).limit(2000),
     sb.from('srs_progress').select('vocabulary_id, next_review, interval_minutes, ease, review_count').eq('student_id', studentId)
   ]);
 
   const rawSessions = (sessions.data || []).slice().sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
-  const reviewData = reviews.data || [];
+  const reviewData = (reviews.data || []).map(r => ({
+    ...r,
+    vocabulary: r.vocabulary ? {
+      ...r.vocabulary,
+      level:   r.vocabulary.learning_sets?.level,
+      chapter: r.vocabulary.learning_sets?.name,
+    } : null,
+  }));
   const progressData = progress.data || [];
 
   // Merge sessions that start within 60 min of the previous one ending/starting
@@ -1767,7 +1829,9 @@ window.switchStudentTab = async (tab) => {
 };
 
 window.openChapterVocab = async (level, chapter) => {
-  const { data } = await sb.from('vocabulary').select('german, english').eq('level', level).eq('chapter', chapter).order('german');
+  const set = (state.allSetsByLevel[level] || []).find(s => s.name === chapter);
+  if (!set) return;
+  const { data } = await sb.from('vocabulary').select('german, english').eq('set_id', set.id).order('german');
   state.viewingVocab = { level, chapter, items: data || [] };
   render();
 };

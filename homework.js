@@ -42,26 +42,21 @@ function initHwActive(assignment) {
 async function loadHomework() {
   try {
     if (state.profile?.is_admin) {
-      // Step 1: load assignments
       const { data: assignments, error } = await sb.from('homework_assignments')
-        .select('*')
+        .select('id, title, student_id, teacher_id, instructions, due_date, status, created_at')
         .eq('teacher_id', state.user.id)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
 
-      // Step 2: load profiles for all students
-      const studentIds = [...new Set((assignments || []).map(a => a.student_id))];
+      const studentIds    = [...new Set((assignments || []).map(a => a.student_id))];
+      const assignmentIds = (assignments || []).map(a => a.id);
+
       let profileMap = {};
       if (studentIds.length > 0) {
-        const { data: profiles } = await sb.from('profiles')
-          .select('id, full_name, email')
-          .in('id', studentIds);
+        const { data: profiles } = await sb.from('profiles').select('id, full_name, email').in('id', studentIds);
         (profiles || []).forEach(p => { profileMap[p.id] = p; });
       }
 
-      // Step 3: load submissions for all assignments
-      const assignmentIds = (assignments || []).map(a => a.id);
       let submissionsMap = {};
       if (assignmentIds.length > 0) {
         const { data: submissions } = await sb.from('homework_submissions')
@@ -70,18 +65,44 @@ async function loadHomework() {
         (submissions || []).forEach(s => { submissionsMap[s.assignment_id] = s; });
       }
 
+      let exerciseCounts = {};
+      if (assignmentIds.length > 0) {
+        const { data: aeCounts } = await sb.from('assignment_exercises')
+          .select('assignment_id')
+          .in('assignment_id', assignmentIds);
+        (aeCounts || []).forEach(ae => {
+          exerciseCounts[ae.assignment_id] = (exerciseCounts[ae.assignment_id] || 0) + 1;
+        });
+      }
+
       state.hwAssignments = (assignments || []).map(a => ({
         ...a,
-        studentProfile: profileMap[a.student_id] || null
+        studentProfile:  profileMap[a.student_id] || null,
+        exercise_count:  exerciseCounts[a.id] || 0,
       }));
       state.hwSubmissions = submissionsMap;
 
     } else {
-      const { data } = await sb.from('homework_assignments')
-        .select('*')
+      const { data: assignments } = await sb.from('homework_assignments')
+        .select('id, title, student_id, teacher_id, instructions, status, created_at')
         .eq('student_id', state.user.id)
         .order('created_at', { ascending: false });
-      state.hwAssignments = data || [];
+
+      const assignmentIds = (assignments || []).map(a => a.id);
+      let exerciseCounts = {};
+      if (assignmentIds.length > 0) {
+        const { data: aeCounts } = await sb.from('assignment_exercises')
+          .select('assignment_id')
+          .in('assignment_id', assignmentIds);
+        (aeCounts || []).forEach(ae => {
+          exerciseCounts[ae.assignment_id] = (exerciseCounts[ae.assignment_id] || 0) + 1;
+        });
+      }
+
+      state.hwAssignments = (assignments || []).map(a => ({
+        ...a,
+        exercise_count: exerciseCounts[a.id] || 0,
+      }));
     }
   } catch (e) {
     console.error('loadHomework error:', e);
@@ -114,16 +135,31 @@ async function generateHomework(studentName, lessonNotes) {
 async function saveHomework() {
   if (!state.hwPreview || !state.hwCreateStudent) return;
 
-  const { error } = await sb.from('homework_assignments').insert({
-    student_id: state.hwCreateStudent.id,
-    teacher_id: state.user.id,
-    title: state.hwPreview.title,
-    lesson_notes: state.hwCreateNotes,
-    exercises: state.hwPreview.exercises,
-    status: 'pending'
-  });
+  const { data: newAssignment, error } = await sb.from('homework_assignments').insert({
+    student_id:   state.hwCreateStudent.id,
+    teacher_id:   state.user.id,
+    title:        state.hwPreview.title,
+    instructions: state.hwCreateNotes,
+    status:       'pending',
+  }).select().single();
 
   if (error) { showToast('Fehler beim Speichern: ' + error.message, 'error'); return; }
+
+  for (const [i, ex] of state.hwPreview.exercises.entries()) {
+    const { data: newEx, error: exErr } = await sb.from('exercises').insert({
+      created_by:    state.user.id,
+      exercise_type: ex.type,
+      title:         ex.instruction || '',
+      content:       ex.content || {},
+    }).select().single();
+    if (exErr) { console.error('Exercise insert error:', exErr); continue; }
+
+    await sb.from('assignment_exercises').insert({
+      assignment_id: newAssignment.id,
+      exercise_id:   newEx.id,
+      order_index:   i,
+    });
+  }
 
   showToast('Hausaufgaben gespeichert!', 'success');
   state.hwCreating = false;
@@ -140,33 +176,36 @@ async function submitHomework() {
 
   let totalPoints = 0;
   let earnedPoints = 0;
-
   for (const ex of assignment.exercises) {
     const es = exState[ex.id];
     if (!es?.feedback) continue;
     if (ex.type === 'odd_one_out') {
-      totalPoints += ex.content.items.length;
+      totalPoints  += ex.content.items.length;
       earnedPoints += es.feedback.correct || 0;
     } else {
-      totalPoints += es.feedback.total || 0;
+      totalPoints  += es.feedback.total || 0;
       earnedPoints += es.feedback.correct || 0;
     }
   }
-
   const score = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
 
-  const { error: subError } = await sb.from('homework_submissions').insert({
+  const { data: submission, error: subError } = await sb.from('homework_submissions').insert({
     assignment_id: assignment.id,
-    student_id: state.user.id,
-    answers: exState,
-    score
-  });
+    student_id:    state.user.id,
+    score,
+  }).select().single();
 
   if (subError) { showToast('Fehler beim Einreichen: ' + subError.message, 'error'); return; }
 
-  await sb.from('homework_assignments')
-    .update({ status: 'completed' })
-    .eq('id', assignment.id);
+  const responseRows = assignment.exercises.map(ex => ({
+    submission_id: submission.id,
+    exercise_id:   ex.id,
+    response:      exState[ex.id] || {},
+    is_correct:    exState[ex.id]?.feedback?.allCorrect || false,
+  }));
+  if (responseRows.length > 0) await sb.from('exercise_responses').insert(responseRows);
+
+  await sb.from('homework_assignments').update({ status: 'completed' }).eq('id', assignment.id);
 
   showToast(`Hausaufgaben eingereicht! Ergebnis: ${score}%`, 'success');
   state.hwActive.submission = { score, submitted_at: new Date().toISOString() };
@@ -175,11 +214,36 @@ async function submitHomework() {
 }
 
 async function loadHomeworkResults(assignmentId) {
-  const { data } = await sb.from('homework_submissions')
-    .select('*')
+  const { data: submission } = await sb.from('homework_submissions')
+    .select('id, score, submitted_at, feedback')
     .eq('assignment_id', assignmentId)
     .maybeSingle();
-  state.hwResults = data;
+
+  let fullSubmission = null;
+  if (submission) {
+    const { data: responses } = await sb.from('exercise_responses')
+      .select('exercise_id, response, is_correct')
+      .eq('submission_id', submission.id);
+    const answers = {};
+    (responses || []).forEach(r => { answers[r.exercise_id] = r.response; });
+    fullSubmission = { ...submission, answers };
+  }
+
+  // Load exercises and attach to the assignment in state (needed by buildHomeworkTeacherResults)
+  const { data: aeRows } = await sb.from('assignment_exercises')
+    .select('order_index, exercises(*)')
+    .eq('assignment_id', assignmentId)
+    .order('order_index');
+  const exercises = (aeRows || []).map(ae => ({
+    id:          ae.exercises.id,
+    type:        ae.exercises.exercise_type,
+    instruction: ae.exercises.title,
+    content:     ae.exercises.content,
+  }));
+  const assignment = state.hwAssignments.find(a => a.id === assignmentId);
+  if (assignment) assignment.exercises = exercises;
+
+  state.hwResults     = fullSubmission;
   state.hwViewResults = assignmentId;
   render();
 }
@@ -315,7 +379,7 @@ function buildHomeworkTeacherStudentView() {
                 <div style="width:42px;height:42px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📝</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:700;font-size:15px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.title}</div>
-                  <div class="text-muted text-sm">${date} · ${a.exercises?.length || 0} Übungen${submittedDate ? ` · Eingereicht am ${submittedDate}` : ''}</div>
+                  <div class="text-muted text-sm">${date} · ${a.exercise_count || 0} Übungen${submittedDate ? ` · Eingereicht am ${submittedDate}` : ''}</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
                   ${sub?.score != null ? `<span style="font-weight:800;font-size:15px;color:${sub.score >= 70 ? 'var(--green)' : sub.score >= 40 ? 'var(--orange)' : 'var(--red)'}">${sub.score}%</span>` : ''}
@@ -525,7 +589,7 @@ function buildHomeworkStudent() {
           <div style="display:flex;align-items:center;justify-content:space-between">
             <div style="flex:1;min-width:0">
               <div style="font-weight:800;font-size:16px;margin-bottom:4px">${a.title}</div>
-              <div class="text-muted text-sm">${new Date(a.created_at).toLocaleDateString('de-DE')} · ${a.exercises?.length || 0} Übungen</div>
+              <div class="text-muted text-sm">${new Date(a.created_at).toLocaleDateString('de-DE')} · ${a.exercise_count || 0} Übungen</div>
             </div>
             <div style="color:var(--accent);font-size:22px;font-weight:800;margin-left:12px">→</div>
           </div>
@@ -1041,16 +1105,35 @@ window.hwOpenAssignment = async (assignmentId) => {
   const assignment = state.hwAssignments.find(a => a.id === assignmentId);
   if (!assignment) return;
 
+  // Load exercises from normalized tables
+  const { data: aeRows } = await sb.from('assignment_exercises')
+    .select('order_index, exercises(*)')
+    .eq('assignment_id', assignmentId)
+    .order('order_index');
+  const exercises = (aeRows || []).map(ae => ({
+    id:          ae.exercises.id,
+    type:        ae.exercises.exercise_type,
+    instruction: ae.exercises.title,
+    content:     ae.exercises.content,
+  }));
+  const fullAssignment = { ...assignment, exercises };
+
+  // Load existing submission + per-exercise responses
   const { data: submission } = await sb.from('homework_submissions')
-    .select('*')
+    .select('id, score, submitted_at, feedback')
     .eq('assignment_id', assignmentId)
     .eq('student_id', state.user.id)
     .maybeSingle();
 
-  state.hwActive = initHwActive(assignment);
+  state.hwActive = initHwActive(fullAssignment);
   if (submission) {
-    state.hwActive.submission = submission;
-    state.hwActive.exState = submission.answers || {};
+    const { data: responses } = await sb.from('exercise_responses')
+      .select('exercise_id, response, is_correct')
+      .eq('submission_id', submission.id);
+    const answers = {};
+    (responses || []).forEach(r => { answers[r.exercise_id] = r.response; });
+    state.hwActive.submission = { ...submission, score: submission.score, answers };
+    state.hwActive.exState    = answers;
   }
   render();
 };
