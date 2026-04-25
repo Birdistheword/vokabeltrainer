@@ -715,53 +715,22 @@ function buildCorrectionItemRow(exId, key, item, decision, editedAnswer) {
   </div>`;
 }
 
-// Count individual items (gaps/rows/sentences) across exercises for %-based scoring
+// Count individual items across exercises for %-based scoring.
+// Mirrors hwGetAutoItems so teacher view and score always count identical items.
 function hwItemStats(exercises, answers, corrections) {
   let correct = 0, total = 0;
   for (const ex of (exercises||[])) {
-    if (!hwExTypeAutoGraded(ex.type)) continue;
     const exState = answers?.[ex.id];
     const exTc = corrections?.[ex.id]?.teacher_corrections;
-    const tdFn = (key) => exTc?.items?.hasOwnProperty(key) ? exTc.items[key] : null;
-    if (ex.type==='type_in_gap'||ex.type==='drag_to_gap') {
-      for (const sent of ex.content.sentences||[]) {
-        (sent.parts||[]).forEach((p,i)=>{ if(typeof p!=='object')return;
-          const key=`${sent.id}_${i}`, given=exState?.answer?.[sent.id]?.[key]||'';
-          const dec=tdFn(key), ok=dec!==null?dec:given.trim().toLowerCase()===p.gap.toLowerCase();
-          total++; if(ok)correct++;
-        });
-      }
-    } else if (ex.type==='word_ordering') {
-      for (const sent of ex.content.sentences||[]) {
-        const placed=exState?.answer?.[sent.id]||[], dec=tdFn(`sent_${sent.id}`);
-        const ok=dec!==null?dec:placed.map(w=>w.toLowerCase()).join(' ')===sent.correct.map(w=>w.toLowerCase()).join(' ');
-        total++; if(ok)correct++;
-      }
-    } else if (ex.type==='odd_one_out') {
-      for (const item of ex.content.items||[]) {
-        const given=exState?.answer?.[item.id], dec=tdFn(`item_${item.id}`);
-        const ok=dec!==null?dec:given===item.correct; total++; if(ok)correct++;
-      }
-    } else if (ex.type==='conjugation_table') {
-      for (const row of ex.content.rows||[]) {
-        const given=exState?.answer?.[row.pronoun]||'', dec=tdFn(`conj_${row.pronoun}`);
-        const ok=dec!==null?dec:given.trim().toLowerCase()===row.answer.toLowerCase();
-        total++; if(ok)correct++;
-      }
-    } else if (ex.type==='error_correction') {
-      for (const sent of ex.content.sentences||[]) {
-        const given=exState?.answer?.[sent.id]||'', key=`ec_${sent.id}`;
-        const accepted=exTc?.editedAnswers?.[key]||sent.answer, dec=tdFn(key);
-        const ok=dec!==null?dec:given.trim().toLowerCase()===accepted.trim().toLowerCase();
-        total++; if(ok)correct++;
-      }
-    } else if (ex.type==='sentence_transformation') {
-      for (const sent of ex.content.sentences||[]) {
-        const given=exState?.answer?.[sent.id]||'', key=`st_${sent.id}`;
-        const accepted=exTc?.editedAnswers?.[key]||sent.answer, dec=tdFn(key);
-        const ok=dec!==null?dec:given.trim().toLowerCase()===accepted.trim().toLowerCase();
-        total++; if(ok)correct++;
-      }
+    const autoItems = hwGetAutoItems(ex, exState);
+    for (const [key, item] of Object.entries(autoItems)) {
+      // For manually-graded types (mini_dialogue, word_association), only count
+      // items where the teacher actually set a decision — otherwise skip.
+      if (item.autoCorrect === null && !exTc?.items?.hasOwnProperty(key)) continue;
+      total++;
+      const dec = exTc?.items?.[key];
+      const ok = (dec !== null && dec !== undefined) ? dec : item.autoCorrect;
+      if (ok === true) correct++;
     }
   }
   return { correct, total };
