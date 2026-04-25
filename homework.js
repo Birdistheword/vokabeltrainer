@@ -1036,13 +1036,29 @@ function buildSentenceTransformation(ex, es, idx) {
   return `<div class="card exercise-card" style="border-top:3px solid ${color}">
     ${buildExerciseHeader(ex,idx,es)}
     <p class="ex-instruction">${escHtml(ex.instruction)}</p>
-    ${ex.content.transformation?`<div style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px">${escHtml(ex.content.transformation)}</div>`:''}
+    ${ex.content.transformation?`<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(99,102,241,0.08);border:1.5px solid rgba(99,102,241,0.25);border-radius:20px;padding:4px 12px;margin-bottom:16px">
+      <span style="font-size:13px">🔄</span>
+      <span style="font-size:12px;font-weight:700;color:${color}">${escHtml(ex.content.transformation)}</span>
+    </div>`:''}
     ${(ex.content.sentences||[]).map((sent,si)=>{
       const fb=feedback?.items?.[sent.id], val=done?(es.answer?.[sent.id]||''):'';
-      return `<div style="margin-bottom:${si<ex.content.sentences.length-1?'16px':'0'}">
-        <div style="padding:10px 14px;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:14px">${escHtml(sent.original)}</div>
-        <input type="text" id="st-${ex.id}-${sent.id}" class="gap-input${done?(fb!==undefined?(fb?' correct':' wrong'):''):''}" ${done?'disabled':''} placeholder="Umgeschriebener Satz…" value="${val.replace(/"/g,'&quot;')}" style="width:100%;padding:10px 12px;font-size:14px">
-        ${done&&fb===false?`<div style="font-size:12px;color:var(--green);margin-top:4px;padding-left:4px">Richtig: ${escHtml(sent.answer)}</div>`:''}
+      const inputBorder=done?(fb===true?'2px solid var(--green)':fb===false?'2px solid var(--red)':'1.5px solid var(--border)'):'1.5px solid var(--border)';
+      return `<div style="margin-bottom:${si<ex.content.sentences.length-1?'12px':'0'}">
+        <div style="display:flex;align-items:stretch;gap:0;border:1.5px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="flex:1;padding:14px 16px;background:var(--surface2);min-width:0">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3);margin-bottom:5px">Original</div>
+            <div style="font-size:15px;font-weight:600;color:var(--text);line-height:1.4">${escHtml(sent.original)}</div>
+          </div>
+          <div style="display:flex;align-items:center;padding:0 10px;background:var(--surface2);border-left:1.5px solid var(--border);border-right:1.5px solid var(--border);flex-shrink:0">
+            <span style="font-size:20px;color:${color}">→</span>
+          </div>
+          <div style="flex:1;padding:12px 14px;min-width:0;display:flex;flex-direction:column;justify-content:center">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3);margin-bottom:5px">Umschreiben</div>
+            <input type="text" id="st-${ex.id}-${sent.id}" ${done?'disabled':''} placeholder="Umgeschriebener Satz…" value="${val.replace(/"/g,'&quot;')}"
+              style="width:100%;padding:8px 10px;border:${inputBorder};border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;background:var(--surface);color:var(--text);box-sizing:border-box">
+            ${done&&fb===false?`<div style="font-size:12px;color:var(--green);margin-top:6px">✓ ${escHtml(sent.answer)}</div>`:''}
+          </div>
+        </div>
       </div>`;
     }).join('')}
     ${!done?`<button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="hwCheckSentenceTransformation('${ex.id}')">Überprüfen</button>`:buildFeedbackBar(feedback)}
@@ -1189,16 +1205,26 @@ function buildExerciseResultsView(ex, exState, tc) {
     }).join('');
   }
   if (ex.type==='sentence_transformation') {
-    return (ex.content.sentences||[]).map(sent=>{
+    const color = hwExTypeColor(ex.type);
+    return (ex.content.sentences||[]).map((sent,si)=>{
       const given=exState.answer?.[sent.id]||'—';
       const key=`st_${sent.id}`, teacherDec=td(key), acceptedAnswer=ta(key,sent.answer);
       const correct=teacherDec!==null?teacherDec:given.trim().toLowerCase()===acceptedAnswer.trim().toLowerCase();
-      return `<div style="margin-bottom:10px">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Original: ${escHtml(sent.original)}</div>
-        <div style="padding:8px 12px;border-radius:8px;background:${correct?'rgba(34,192,107,0.08)':'rgba(240,74,90,0.05)'};border:1.5px solid ${correct?'var(--green)':'var(--red)'};font-size:14px;font-weight:600;color:${correct?'var(--green)':'var(--red)'}">
-          ${escHtml(given)} ${correct?'✓':'✗'}
+      return `<div style="margin-bottom:${si<(ex.content.sentences||[]).length-1?'10px':'0'}">
+        <div style="display:flex;align-items:stretch;gap:0;border:1.5px solid ${correct?'var(--green)':'var(--red)'};border-radius:12px;overflow:hidden">
+          <div style="flex:1;padding:14px 16px;background:var(--surface2);min-width:0">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3);margin-bottom:5px">Original</div>
+            <div style="font-size:15px;font-weight:600;color:var(--text);line-height:1.4">${escHtml(sent.original)}</div>
+          </div>
+          <div style="display:flex;align-items:center;padding:0 10px;background:var(--surface2);border-left:1.5px solid var(--border);border-right:1.5px solid var(--border);flex-shrink:0">
+            <span style="font-size:20px;color:${color}">→</span>
+          </div>
+          <div style="flex:1;padding:14px 16px;background:${correct?'rgba(34,192,107,0.07)':'rgba(240,74,90,0.05)'};min-width:0">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:${correct?'var(--green)':'var(--red)'};margin-bottom:5px">${correct?'✓ Richtig':'✗ Falsch'}</div>
+            <div style="font-size:15px;font-weight:600;color:${correct?'var(--green)':'var(--red)'};line-height:1.4">${escHtml(given)}</div>
+            ${!correct?`<div style="font-size:12px;color:var(--text2);margin-top:8px;padding-top:8px;border-top:1px solid rgba(240,74,90,0.2)">→ ${escHtml(acceptedAnswer)}</div>`:''}
+          </div>
         </div>
-        ${!correct?`<div style="font-size:12px;color:var(--text2);margin-top:4px">Richtig: ${escHtml(acceptedAnswer)}</div>`:''}
       </div>`;
     }).join('');
   }
