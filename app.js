@@ -1955,4 +1955,4 @@ async function handleCSVFile(file) {
   render();
 })();
 
-export { sb, state, render, showToast, escHtml, shuffle }
+export { sb, state, render, showToast, escHtml, shuffle, loadUnlockedForStudent }

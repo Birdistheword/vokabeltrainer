@@ -1,5 +1,5 @@
 // ========== HOMEWORK MODULE ==========
-import { sb, state, render, showToast, escHtml } from './app.js'
+import { sb, state, render, showToast, escHtml, loadUnlockedForStudent } from './app.js'
 
 let _hwDragExId = null;
 let _hwDragWord = null;
