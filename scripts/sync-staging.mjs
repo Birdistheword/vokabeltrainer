@@ -1,20 +1,22 @@
-#!/usr/bin/env node
-/**
- * One-way data sync: PRODUCTION → STAGING
- *
- * Reads PROD_DB_URL and STAGING_DB_URL from .env.local
- * For every table in the public schema:
- *   1. Truncates the staging copy
- *   2. Copies all rows from production
- *
- * FK constraints are disabled during inserts via session_replication_role=replica
- * so dependency order doesn't matter and orphan auth references don't fail.
- *
- * NOTE: this only syncs the public schema. auth.users is NOT touched —
- * each Supabase project has its own auth domain. See README in this folder
- * for the test-account workflow.
- */
+// ⚠️  DO NOT USE THIS SCRIPT ⚠️
+//
+// This script was designed to wipe staging and refill it with prod data.
+// That approach is WRONG for this project:
+//
+//  - Staging is an INDEPENDENT environment from prod, not a mirror.
+//  - Staging test accounts (claudetest@test.com, claudeteachertest@test.com)
+//    own their own data (vocab, homework, etc.) created directly on staging.
+//  - Running this script would destroy all staging test data.
+//  - Even if it ran, synced prod rows are invisible to staging test accounts
+//    because Supabase RLS filters by auth.uid() and staging users have
+//    different UIDs than the prod users whose rows got copied.
+//
+// If you need to reproduce a prod-specific bug, copy the specific rows
+// you need manually — do NOT run a full wipe-and-replace.
+//
+// The script code is preserved below as a reference only.
 
+/*
 import 'dotenv/config'
 import pg from 'pg'
 
@@ -121,3 +123,4 @@ main().catch((err) => {
   if (err.detail) console.error('   Detail:', err.detail)
   process.exit(1)
 })
+*/
