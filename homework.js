@@ -1,5 +1,5 @@
 // ========== HOMEWORK MODULE ==========
-import { sb, state, render, showToast, escHtml } from './app.js'
+import { sb, state, render, showToast, escHtml, loadUnlockedForStudent } from './app.js'
 
 let _hwDragExId = null;
 let _hwDragWord = null;
@@ -433,10 +433,10 @@ function buildHwSlotRow(slot, i) {
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <input type="text" value="${escHtml(slot.grammarFocus||'')}" placeholder="Grammatik (z.B. Perfekt mit sein)"
           style="flex:2;min-width:140px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface2);color:var(--text)"
-          oninput="hwUpdateSlot(${i},'grammarFocus',this.value,true)" onblur="render()">
+          oninput="hwUpdateSlot(${i},'grammarFocus',this.value,true)">
         <input type="text" value="${escHtml(slot.theme||'')}" placeholder="Thema (z.B. Restaurant)"
           style="flex:1;min-width:100px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface2);color:var(--text)"
-          oninput="hwUpdateSlot(${i},'theme',this.value,true)" onblur="render()">
+          oninput="hwUpdateSlot(${i},'theme',this.value,true)">
         <select style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--surface2);color:var(--text)"
           onchange="hwUpdateSlot(${i},'vocabSource',this.value)">
           <option value="recent_30d" ${slot.vocabSource==='recent_30d'?'selected':''}>Letzte 30 Tage</option>

@@ -12,7 +12,7 @@ function escHtml(str) {
 }
 
 // ========== STATE ==========
-let state = {
+const state = {
   user: null,
   profile: null,
   view: 'login',        // login | set-password | student | admin
@@ -219,7 +219,7 @@ async function loadTeachers() {
 
 async function logout() {
   await sb.auth.signOut();
-  state = { ...state, user: null, profile: null, view: 'login', session: null, currentCard: null };
+  Object.assign(state, { user: null, profile: null, view: 'login', session: null, currentCard: null });
   render();
 }
 
@@ -1955,4 +1955,4 @@ async function handleCSVFile(file) {
   render();
 })();
 
-export { sb, state, render, showToast, escHtml, shuffle }
+export { sb, state, render, showToast, escHtml, shuffle, loadUnlockedForStudent }

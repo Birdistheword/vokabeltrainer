@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "setup-staging-schema": "node scripts/setup-staging-schema.mjs",
     "sync-staging": "node scripts/sync-staging.mjs"
   },
   "devDependencies": {

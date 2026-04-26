@@ -15,7 +15,8 @@
  * for the test-account workflow.
  */
 
-import 'dotenv/config'
+import dotenv from 'dotenv'
+dotenv.config({ path: '.env.local' })
 import pg from 'pg'
 
 const { Client } = pg
@@ -75,6 +76,17 @@ async function main() {
 
     console.log('\n📥 Copying data:')
     for (const t of tables) {
+      // Get column types so we know which need JSON stringification
+      const { rows: typeInfo } = await prod.query(
+        `
+        SELECT column_name, udt_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+      `,
+        [t],
+      )
+      const colTypes = Object.fromEntries(typeInfo.map((r) => [r.column_name, r.udt_name]))
+
       const { rows } = await prod.query(`SELECT * FROM "${t}"`)
       if (rows.length === 0) {
         console.log(`  ${t.padEnd(34)} (empty)`)
@@ -83,13 +95,24 @@ async function main() {
       const cols = Object.keys(rows[0])
       const colList = cols.map((c) => `"${c}"`).join(',')
 
+      // pg auto-serializes most types, but jsonb/json need explicit stringify
+      // (otherwise objects get sent as "[object Object]" → invalid JSON)
+      const prepValue = (col, val) => {
+        if (val === null || val === undefined) return val
+        const t = colTypes[col]
+        if ((t === 'json' || t === 'jsonb') && typeof val === 'object') {
+          return JSON.stringify(val)
+        }
+        return val
+      }
+
       // Insert in chunks to avoid massive single queries
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
         const chunk = rows.slice(i, i + CHUNK_SIZE)
         const allValues = []
         const placeholderRows = chunk.map((row, ri) => {
           const offset = ri * cols.length
-          cols.forEach((c) => allValues.push(row[c]))
+          cols.forEach((c) => allValues.push(prepValue(c, row[c])))
           return `(${cols.map((_, ci) => `$${offset + ci + 1}`).join(',')})`
         })
         await staging.query(
