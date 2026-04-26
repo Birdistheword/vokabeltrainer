@@ -12,3 +12,8 @@ dist/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Local Claude Code debugging files (keep out of git)
+.claude/bug-log.md
+.claude/credentials.local.md
+.claude/settings.local.json

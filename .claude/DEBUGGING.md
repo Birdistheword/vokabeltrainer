@@ -24,17 +24,18 @@ If the user's report is vague ("X is weird"), ask one clarifying question before
 You must trigger the bug yourself before touching code.
 
 **Setup (do once per session):**
-1. Start dev server: `npm run dev` via Bash with `run_in_background: true`. It serves at http://localhost:5173.
-2. Confirm it's up — check Bash output or hit the URL.
-3. Get test credentials (see "Credentials" section below).
+1. Check if a Preview server is already running: `mcp__Claude_Preview__preview_list`. If yes, reuse its `serverId` — do NOT start a second one.
+2. If not running: `mcp__Claude_Preview__preview_start` with `name: "vokabeltrainer"` (defined in `.claude/launch.json`). Save the returned `serverId` for the rest of the session.
+3. Read test credentials from `.claude/credentials.local.md` (gitignored).
 
-**Repro loop with Chrome MCP:**
-1. `mcp__Claude_in_Chrome__navigate` → http://localhost:5173
-2. `mcp__Claude_in_Chrome__read_console_messages` — grab baseline (should be clean)
-3. Log in with test account, click through to the broken state
-4. `mcp__Claude_in_Chrome__read_console_messages` — capture errors
-5. `mcp__Claude_in_Chrome__read_network_requests` — capture failed/odd requests
-6. Screenshot if visual: `mcp__Claude_in_Chrome__computer` (action: screenshot)
+**Repro loop with Preview MCP:**
+1. `preview_snapshot` — get the accessibility tree to find selectors for the login form
+2. `preview_fill` email + password, `preview_click` the login button
+3. `preview_console_logs` — grab baseline after login (should be clean)
+4. Click through to the broken state via `preview_click` / `preview_fill`
+5. `preview_console_logs level: "error"` — capture errors
+6. `preview_network filter: "failed"` — capture failed requests
+7. `preview_screenshot` if the bug is visual; `preview_inspect` for specific style/layout values
 
 **If you can't reproduce:**
 - If a few more attempts with light variation might catch it → try, max 3 attempts
@@ -129,9 +130,9 @@ The fix is not done until *you* re-run the Phase 1 repro and it no longer reprod
 
 ## Credentials
 
-Test account for autonomous Chrome MCP login: **[user to provide — paste here once set up, or store in `.env` as `TEST_STUDENT_EMAIL` / `TEST_STUDENT_PASSWORD` / `TEST_TEACHER_EMAIL` / `TEST_TEACHER_PASSWORD`]**
+Test account credentials live in `.claude/credentials.local.md` (gitignored). Read that file to get them.
 
-If credentials aren't available at session start, stop at the login screen and ask. Don't try to register a new account — that pollutes staging.
+If the file is missing, stop at the login screen and ask the user. Don't try to register a new account — that pollutes staging.
 
 ---
 
@@ -139,13 +140,17 @@ If credentials aren't available at session start, stop at the login screen and a
 
 | Need | Tool |
 |---|---|
-| Start dev server | `Bash`, `npm run dev`, `run_in_background: true` |
-| Open the app | `mcp__Claude_in_Chrome__navigate` |
-| Click / type | `mcp__Claude_in_Chrome__computer` |
-| Read console | `mcp__Claude_in_Chrome__read_console_messages` |
-| Read network | `mcp__Claude_in_Chrome__read_network_requests` |
-| Run JS in page | `mcp__Claude_in_Chrome__javascript_tool` (great for inspecting state) |
-| Screenshot | `mcp__Claude_in_Chrome__computer` action `screenshot` |
+| Check if server running | `mcp__Claude_Preview__preview_list` |
+| Start dev server | `mcp__Claude_Preview__preview_start` (name: `vokabeltrainer`) |
+| Stop dev server | `mcp__Claude_Preview__preview_stop` |
+| Get page structure / find selectors | `mcp__Claude_Preview__preview_snapshot` |
+| Click | `mcp__Claude_Preview__preview_click` |
+| Fill input | `mcp__Claude_Preview__preview_fill` |
+| Read console | `mcp__Claude_Preview__preview_console_logs` (use `level: "error"` to filter) |
+| Read network | `mcp__Claude_Preview__preview_network` (use `filter: "failed"`) |
+| Inspect computed style | `mcp__Claude_Preview__preview_inspect` |
+| Run JS in page | `mcp__Claude_Preview__preview_eval` (state inspection only — don't use to "fix" UI) |
+| Screenshot | `mcp__Claude_Preview__preview_screenshot` |
 | Find code | `Grep` first, `Read` second |
 
-Preview MCP (`mcp__Claude_Preview__*`) is an alternative to Chrome MCP — use whichever is already running, don't start both.
+Preview MCP is the primary debugging tool. Chrome MCP (`mcp__Claude_in_Chrome__*`) is a fallback for cases where you specifically need to debug against the user's real browser state.
